@@ -48,3 +48,14 @@ PYTHONPATH=src python3 experiments/train_am_smoke.py --steps 100
 - 相对变化：-17.49%
 
 该记录表明训练信号和模型适配链路有效，但尚未包含固定基 AM 对照、多随机种子、置信区间和相对最优差距。
+
+## 固定基对照
+
+同一个 `AdaptiveAttentionModel` 可以通过 `base_mode` 使用两种构造方式：
+
+- `fixed`：固定锚点为节点 0，每一步的 base 是当前锚定路径的唯一 tail；模型只对 head 评分。这等价于固定起点后的普通连续路径构造。
+- `adaptive`：模型先对所有合法 tail 评分，再条件于 tail 对 head 评分。
+
+两种模式共用 encoder、head decoder、TSP 状态机、优化器和数据生成逻辑。实验入口为 `experiments/train_am_experiment.py`，会记录 JSONL 指标并原子写入 latest、best 和周期 checkpoint。训练数据和动作采样使用不同的随机数生成器，保证相同 seed 下两种模式每一步看到相同实例。
+
+服务器 pilot 使用 `experiments/run_am_pilot.sh`，顺序执行 TSP-50 的固定基与自适应基各 2000 步。该 pilot 用于选择正式训练长度，不作为最终论文表格。

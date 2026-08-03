@@ -18,6 +18,7 @@ from groupopt.problems.tsp_tensor import BatchedTSPState
 
 
 DecodeType = Literal["greedy", "sampling"]
+BaseMode = Literal["adaptive", "fixed"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,11 +143,15 @@ class AdaptiveAttentionModel(nn.Module):
         self,
         coordinates: Tensor,
         decode_type: DecodeType = "sampling",
+        base_mode: BaseMode = "adaptive",
+        anchor: int = 0,
         temperature: float = 1.0,
         generator: torch.Generator | None = None,
     ) -> AttentionModelOutput:
         if temperature <= 0:
             raise ValueError("temperature must be positive")
+        if base_mode not in ("adaptive", "fixed"):
+            raise ValueError(f"unknown base mode: {base_mode}")
 
         node_embeddings, graph_embedding = self.encoder(coordinates)
         state = BatchedTSPState.initialize(coordinates)
@@ -163,19 +168,25 @@ class AdaptiveAttentionModel(nn.Module):
         selected_log_probabilities: list[Tensor] = []
 
         while not state.terminal:
-            tail_query = self.project_tail_context(
-                torch.cat((graph_context, last_head_embedding), dim=-1)
-            )
-            tail_log_p = self._attention_log_probabilities(
-                tail_query,
-                key,
-                value,
-                logit_key,
-                state.tail_mask(),
-                self.project_tail_glimpse,
-                temperature,
-            )
-            selected_tail = _select(tail_log_p, decode_type, generator)
+            if base_mode == "adaptive":
+                tail_query = self.project_tail_context(
+                    torch.cat((graph_context, last_head_embedding), dim=-1)
+                )
+                tail_log_p = self._attention_log_probabilities(
+                    tail_query,
+                    key,
+                    value,
+                    logit_key,
+                    state.tail_mask(),
+                    self.project_tail_glimpse,
+                    temperature,
+                )
+                selected_tail = _select(tail_log_p, decode_type, generator)
+                selected_log_probabilities.append(
+                    tail_log_p.gather(1, selected_tail[:, None]).squeeze(1)
+                )
+            else:
+                selected_tail = state.sequential_base(anchor)
 
             tail_embedding = node_embeddings.gather(
                 1,
@@ -197,11 +208,8 @@ class AdaptiveAttentionModel(nn.Module):
             )
             selected_head = _select(head_log_p, decode_type, generator)
 
-            selected_log_probabilities.extend(
-                (
-                    tail_log_p.gather(1, selected_tail[:, None]).squeeze(1),
-                    head_log_p.gather(1, selected_head[:, None]).squeeze(1),
-                )
+            selected_log_probabilities.append(
+                head_log_p.gather(1, selected_head[:, None]).squeeze(1)
             )
             tails.append(selected_tail)
             heads.append(selected_head)

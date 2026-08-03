@@ -18,8 +18,12 @@ class AdaptiveAttentionModelTests(unittest.TestCase):
             normalization="layer",
         )
 
-    def _assert_outputs_are_valid_tours(self, decode_type: str) -> None:
-        output = self.model(self.coordinates, decode_type=decode_type)
+    def _assert_outputs_are_valid_tours(
+        self, decode_type: str, base_mode: str = "adaptive"
+    ) -> None:
+        output = self.model(
+            self.coordinates, decode_type=decode_type, base_mode=base_mode
+        )
         process = DirectedTSPConstruction()
 
         self.assertEqual(output.tails.shape, (4, 6))
@@ -46,6 +50,17 @@ class AdaptiveAttentionModelTests(unittest.TestCase):
         self.model.eval()
         with torch.no_grad():
             self._assert_outputs_are_valid_tours("sampling")
+
+    def test_fixed_base_forward_is_a_continuous_anchored_path(self) -> None:
+        self.model.eval()
+        with torch.no_grad():
+            output = self.model(
+                self.coordinates, decode_type="sampling", base_mode="fixed"
+            )
+
+        self.assertTrue(torch.equal(output.tails[:, 0], torch.zeros(4, dtype=torch.long)))
+        self.assertTrue(torch.equal(output.tails[:, 1:], output.heads[:, :-1]))
+        self._assert_outputs_are_valid_tours("greedy", base_mode="fixed")
 
     def test_sampled_log_likelihood_supports_backpropagation(self) -> None:
         self.model.train()

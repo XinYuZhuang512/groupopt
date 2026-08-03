@@ -59,6 +59,13 @@ class BatchedTSPStateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "violates"):
             state.update(torch.tensor([1]), torch.tensor([0]))
 
+    def test_sequential_base_tracks_the_anchored_path_tail(self) -> None:
+        state = BatchedTSPState.initialize(torch.rand(2, 4, 2))
+        self.assertTrue(torch.equal(state.sequential_base(), torch.tensor([0, 0])))
+
+        state = state.update(torch.tensor([0, 0]), torch.tensor([2, 1]))
+        self.assertTrue(torch.equal(state.sequential_base(), torch.tensor([2, 1])))
+
 
 if __name__ == "__main__":
     unittest.main()

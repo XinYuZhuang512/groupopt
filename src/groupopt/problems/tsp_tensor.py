@@ -78,6 +78,19 @@ class BatchedTSPState:
         same_component = self.component == tail_component
         return basic_mask | same_component
 
+    def sequential_base(self, anchor: int = 0) -> Tensor:
+        """Return the unique tail of each batch item's anchored component."""
+        if self.terminal:
+            raise ValueError("a terminal state has no sequential base")
+        if not 0 <= anchor < self.n:
+            raise ValueError(f"anchor must be in [0, {self.n})")
+
+        anchor_component = self.component[:, anchor : anchor + 1]
+        candidates = (self.component == anchor_component) & ~self.tail_mask()
+        if not torch.all(candidates.sum(dim=1) == 1):
+            raise ValueError("each anchored component must have exactly one tail")
+        return candidates.to(torch.long).argmax(dim=1)
+
     def update(self, selected_tail: Tensor, selected_head: Tensor) -> BatchedTSPState:
         """Add one legal edge per batch item and return a new state."""
         self._validate_action_vector(selected_tail, "selected_tail")
