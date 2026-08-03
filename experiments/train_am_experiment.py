@@ -192,6 +192,7 @@ def run(args: argparse.Namespace) -> None:
             action_generator,
         )
         _atomic_torch_save(payload, checkpoint_dir / "interrupted.pt")
+        _atomic_torch_save(payload, checkpoint_dir / "latest.pt")
         raise
 
 

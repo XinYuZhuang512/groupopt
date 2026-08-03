@@ -14,9 +14,14 @@ run_one() {
   local seed="$2"
   local output_dir="artifacts/formal/tsp50_${base_mode}_seed${seed}"
   local resume_args=()
+  local latest_checkpoint="${output_dir}/checkpoints/latest.pt"
+  local interrupted_checkpoint="${output_dir}/checkpoints/interrupted.pt"
 
-  if [[ -f "${output_dir}/checkpoints/latest.pt" ]]; then
-    resume_args=(--resume "${output_dir}/checkpoints/latest.pt")
+  if [[ -f "${interrupted_checkpoint}" ]] && \
+     { [[ ! -f "${latest_checkpoint}" ]] || [[ "${interrupted_checkpoint}" -nt "${latest_checkpoint}" ]]; }; then
+    resume_args=(--resume "${interrupted_checkpoint}")
+  elif [[ -f "${latest_checkpoint}" ]]; then
+    resume_args=(--resume "${latest_checkpoint}")
   fi
 
   "${PYTHON_BIN}" experiments/train_am_experiment.py \
