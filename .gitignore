@@ -11,7 +11,7 @@ build/
 dist/
 
 # Experiment outputs
-artifacts/
+artifacts
 checkpoints/
 results/
 runs/
