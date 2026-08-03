@@ -70,8 +70,8 @@ def run(args: argparse.Namespace) -> None:
         optimizer.load_state_dict(checkpoint["optimizer"])
         start_step = int(checkpoint["step"])
         best_cost = float(checkpoint["best_cost"])
-        data_generator.set_state(checkpoint["data_generator_state"])
-        action_generator.set_state(checkpoint["action_generator_state"])
+        data_generator.set_state(checkpoint["data_generator_state"].cpu())
+        action_generator.set_state(checkpoint["action_generator_state"].cpu())
 
     metrics_path = output_dir / "metrics.jsonl"
     started_at = time.monotonic()
