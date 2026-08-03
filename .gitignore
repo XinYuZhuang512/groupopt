@@ -1,0 +1,21 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+build/
+dist/
+
+# Experiment outputs
+artifacts/
+checkpoints/
+results/
+runs/
+wandb/
+*.pt
+*.pth
+*.ckpt
