@@ -277,13 +277,17 @@ def _validate_args(args: argparse.Namespace) -> None:
     )
     if min(positive) < 1:
         raise ValueError("sizes and step intervals must be positive")
-    if args.base_mode not in ("fixed", "adaptive"):
-        raise ValueError("base_mode must be fixed or adaptive")
+    if args.base_mode not in ("fixed", "adaptive", "adaptive_state"):
+        raise ValueError("base_mode must be fixed, adaptive, or adaptive_state")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-mode", choices=("fixed", "adaptive"), required=True)
+    parser.add_argument(
+        "--base-mode",
+        choices=("fixed", "adaptive", "adaptive_state"),
+        required=True,
+    )
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--resume")
     parser.add_argument("--graph-size", type=int, default=50)

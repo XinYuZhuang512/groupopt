@@ -18,7 +18,7 @@ from groupopt.problems.tsp_tensor import BatchedTSPState
 
 
 DecodeType = Literal["greedy", "sampling"]
-BaseMode = Literal["adaptive", "fixed"]
+BaseMode = Literal["adaptive", "adaptive_state", "fixed"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +136,12 @@ class AdaptiveAttentionModel(nn.Module):
         self.project_head_context = nn.Linear(2 * embedding_dim, embedding_dim, bias=False)
         self.project_tail_glimpse = nn.Linear(embedding_dim, embedding_dim, bias=False)
         self.project_head_glimpse = nn.Linear(embedding_dim, embedding_dim, bias=False)
+        self.project_tail_state = nn.Linear(
+            2 * embedding_dim + 1, embedding_dim, bias=False
+        )
+        self.project_state_tail_nodes = nn.Linear(
+            embedding_dim, 3 * embedding_dim, bias=False
+        )
         self.first_step_context = nn.Parameter(torch.empty(embedding_dim))
         nn.init.uniform_(self.first_step_context, -1.0, 1.0)
 
@@ -150,7 +156,7 @@ class AdaptiveAttentionModel(nn.Module):
     ) -> AttentionModelOutput:
         if temperature <= 0:
             raise ValueError("temperature must be positive")
-        if base_mode not in ("adaptive", "fixed"):
+        if base_mode not in ("adaptive", "adaptive_state", "fixed"):
             raise ValueError(f"unknown base mode: {base_mode}")
 
         node_embeddings, graph_embedding = self.encoder(coordinates)
@@ -168,15 +174,25 @@ class AdaptiveAttentionModel(nn.Module):
         selected_log_probabilities: list[Tensor] = []
 
         while not state.terminal:
-            if base_mode == "adaptive":
+            if base_mode in ("adaptive", "adaptive_state"):
                 tail_query = self.project_tail_context(
                     torch.cat((graph_context, last_head_embedding), dim=-1)
                 )
+                tail_key, tail_value, tail_logit_key = key, value, logit_key
+                if base_mode == "adaptive_state":
+                    state_tail_nodes = self._state_aware_tail_embeddings(
+                        node_embeddings, state
+                    )
+                    tail_key, tail_value, tail_logit_key = self.project_state_tail_nodes(
+                        state_tail_nodes
+                    ).chunk(3, dim=-1)
+                    tail_key = self._split_heads(tail_key)
+                    tail_value = self._split_heads(tail_value)
                 tail_log_p = self._attention_log_probabilities(
                     tail_query,
-                    key,
-                    value,
-                    logit_key,
+                    tail_key,
+                    tail_value,
+                    tail_logit_key,
                     state.tail_mask(),
                     self.project_tail_glimpse,
                     temperature,
@@ -231,6 +247,40 @@ class AdaptiveAttentionModel(nn.Module):
             heads=head_tensor,
             successor=state.successor,
         )
+
+    def _state_aware_tail_embeddings(
+        self, node_embeddings: Tensor, state: BatchedTSPState
+    ) -> Tensor:
+        """Attach the current open-path structure to every candidate tail.
+
+        A path is summarized by its start endpoint, the mean embedding of its
+        vertices, and its normalized size. Together with the candidate tail's own
+        embedding, this exposes both endpoints and the current component geometry.
+        """
+        component_index = state.component.unsqueeze(-1)
+        embedding_index = component_index.expand_as(node_embeddings)
+        component_sum_by_label = torch.zeros_like(node_embeddings).scatter_add(
+            1, embedding_index, node_embeddings
+        )
+        component_sum = component_sum_by_label.gather(1, embedding_index)
+        ones = torch.ones_like(component_index, dtype=node_embeddings.dtype)
+        component_size_by_label = torch.zeros_like(ones).scatter_add(
+            1, component_index, ones
+        )
+        component_size = component_size_by_label.gather(1, component_index)
+        component_mean = component_sum / component_size
+
+        is_path_start = state.predecessor < 0
+        start_source = node_embeddings * is_path_start.unsqueeze(-1)
+        path_start_by_label = torch.zeros_like(node_embeddings).scatter_add(
+            1, embedding_index, start_source
+        )
+        path_start = path_start_by_label.gather(1, embedding_index)
+        normalized_size = component_size / state.n
+        state_features = torch.cat(
+            (component_mean, path_start, normalized_size), dim=-1
+        )
+        return node_embeddings + self.project_tail_state(state_features)
 
     def _split_heads(self, values: Tensor) -> Tensor:
         batch, nodes, _ = values.shape

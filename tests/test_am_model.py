@@ -51,6 +51,47 @@ class AdaptiveAttentionModelTests(unittest.TestCase):
         with torch.no_grad():
             self._assert_outputs_are_valid_tours("sampling")
 
+    def test_state_aware_adaptive_forward_produces_valid_tours(self) -> None:
+        self.model.eval()
+        with torch.no_grad():
+            self._assert_outputs_are_valid_tours(
+                "greedy", base_mode="adaptive_state"
+            )
+
+    def test_state_aware_tail_embeddings_change_after_path_merge(self) -> None:
+        from groupopt.problems.tsp_tensor import BatchedTSPState
+
+        with torch.no_grad():
+            node_embeddings, _ = self.model.encoder(self.coordinates)
+            initial = BatchedTSPState.initialize(self.coordinates)
+            updated = initial.update(
+                torch.zeros(4, dtype=torch.long),
+                torch.ones(4, dtype=torch.long),
+            )
+            initial_embeddings = self.model._state_aware_tail_embeddings(
+                node_embeddings, initial
+            )
+            updated_embeddings = self.model._state_aware_tail_embeddings(
+                node_embeddings, updated
+            )
+
+        self.assertFalse(torch.equal(initial_embeddings, updated_embeddings))
+        state_delta = updated_embeddings - node_embeddings
+        self.assertTrue(torch.allclose(state_delta[:, 0], state_delta[:, 1]))
+
+    def test_state_aware_selector_supports_backpropagation(self) -> None:
+        self.model.train()
+        output = self.model(
+            self.coordinates, decode_type="sampling", base_mode="adaptive_state"
+        )
+        (-output.log_likelihood.mean()).backward()
+
+        gradient = self.model.project_tail_state.weight.grad
+        self.assertIsNotNone(gradient)
+        assert gradient is not None
+        self.assertTrue(torch.isfinite(gradient).all())
+        self.assertGreater(gradient.abs().sum().item(), 0.0)
+
     def test_fixed_base_forward_is_a_continuous_anchored_path(self) -> None:
         self.model.eval()
         with torch.no_grad():

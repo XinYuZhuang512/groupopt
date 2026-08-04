@@ -51,10 +51,13 @@ PYTHONPATH=src python3 experiments/train_am_smoke.py --steps 100
 
 ## 固定基对照
 
-同一个 `AdaptiveAttentionModel` 可以通过 `base_mode` 使用两种构造方式：
+同一个 `AdaptiveAttentionModel` 可以通过 `base_mode` 使用三种构造方式：
 
 - `fixed`：固定锚点为节点 0，每一步的 base 是当前锚定路径的唯一 tail；模型只对 head 评分。这等价于固定起点后的普通连续路径构造。
 - `adaptive`：模型先对所有合法 tail 评分，再条件于 tail 对 head 评分。
+- `adaptive_state`：保留上述两阶段决策，并为每个 tail 动态编码其所在路径的
+  起点、成员节点平均表示和归一化路径长度，再进行 tail attention。这使基选择器
+  能区分“同一个节点处于不同局部路径结构”时的状态。
 
 两种模式共用 encoder、head decoder、TSP 状态机、优化器和数据生成逻辑。实验入口为 `experiments/train_am_experiment.py`，会记录 JSONL 指标并原子写入 latest、best 和周期 checkpoint。训练数据和动作采样使用不同的随机数生成器，保证相同 seed 下两种模式每一步看到相同实例。
 
