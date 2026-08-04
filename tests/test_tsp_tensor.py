@@ -66,6 +66,19 @@ class BatchedTSPStateTests(unittest.TestCase):
         state = state.update(torch.tensor([0, 0]), torch.tensor([2, 1]))
         self.assertTrue(torch.equal(state.sequential_base(), torch.tensor([2, 1])))
 
+    def test_path_state_features_follow_component_merges(self) -> None:
+        embeddings = torch.tensor([[[1.0], [3.0], [8.0], [12.0]]])
+        state = BatchedTSPState.initialize(torch.rand(1, 4, 2))
+        state = state.update(torch.tensor([0]), torch.tensor([1]))
+
+        features = state.path_state_features(embeddings)
+        self.assertEqual(features.shape, (1, 4, 3))
+        self.assertTrue(torch.equal(features[0, 0], features[0, 1]))
+        self.assertTrue(torch.allclose(features[0, 0], torch.tensor([2.0, 1.0, 0.5])))
+
+        with self.assertRaisesRegex(ValueError, "node_embeddings"):
+            state.path_state_features(torch.rand(2, 4, 3))
+
 
 if __name__ == "__main__":
     unittest.main()

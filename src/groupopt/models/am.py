@@ -257,30 +257,9 @@ class AdaptiveAttentionModel(nn.Module):
         vertices, and its normalized size. Together with the candidate tail's own
         embedding, this exposes both endpoints and the current component geometry.
         """
-        component_index = state.component.unsqueeze(-1)
-        embedding_index = component_index.expand_as(node_embeddings)
-        component_sum_by_label = torch.zeros_like(node_embeddings).scatter_add(
-            1, embedding_index, node_embeddings
+        return node_embeddings + self.project_tail_state(
+            state.path_state_features(node_embeddings)
         )
-        component_sum = component_sum_by_label.gather(1, embedding_index)
-        ones = torch.ones_like(component_index, dtype=node_embeddings.dtype)
-        component_size_by_label = torch.zeros_like(ones).scatter_add(
-            1, component_index, ones
-        )
-        component_size = component_size_by_label.gather(1, component_index)
-        component_mean = component_sum / component_size
-
-        is_path_start = state.predecessor < 0
-        start_source = node_embeddings * is_path_start.unsqueeze(-1)
-        path_start_by_label = torch.zeros_like(node_embeddings).scatter_add(
-            1, embedding_index, start_source
-        )
-        path_start = path_start_by_label.gather(1, embedding_index)
-        normalized_size = component_size / state.n
-        state_features = torch.cat(
-            (component_mean, path_start, normalized_size), dim=-1
-        )
-        return node_embeddings + self.project_tail_state(state_features)
 
     def _split_heads(self, values: Tensor) -> Tensor:
         batch, nodes, _ = values.shape

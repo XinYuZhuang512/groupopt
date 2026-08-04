@@ -91,6 +91,41 @@ class BatchedTSPState:
             raise ValueError("each anchored component must have exactly one tail")
         return candidates.to(torch.long).argmax(dim=1)
 
+    def path_state_features(self, node_embeddings: Tensor) -> Tensor:
+        """Summarize the open path containing each vertex.
+
+        The result concatenates the component mean embedding, the embedding of the
+        unique path start (the vertex without a predecessor), and normalized path
+        size. It is model-independent state information for adaptive base selection.
+        """
+        if node_embeddings.ndim != 3 or node_embeddings.shape[:2] != (
+            self.batch_size,
+            self.n,
+        ):
+            raise ValueError("node_embeddings must have shape (batch, nodes, embedding)")
+
+        component_index = self.component.unsqueeze(-1)
+        embedding_index = component_index.expand_as(node_embeddings)
+        component_sum_by_label = torch.zeros_like(node_embeddings).scatter_add(
+            1, embedding_index, node_embeddings
+        )
+        component_sum = component_sum_by_label.gather(1, embedding_index)
+        ones = torch.ones_like(component_index, dtype=node_embeddings.dtype)
+        component_size_by_label = torch.zeros_like(ones).scatter_add(
+            1, component_index, ones
+        )
+        component_size = component_size_by_label.gather(1, component_index)
+        component_mean = component_sum / component_size
+
+        is_path_start = self.predecessor < 0
+        start_source = node_embeddings * is_path_start.unsqueeze(-1)
+        path_start_by_label = torch.zeros_like(node_embeddings).scatter_add(
+            1, embedding_index, start_source
+        )
+        path_start = path_start_by_label.gather(1, embedding_index)
+        normalized_size = component_size / self.n
+        return torch.cat((component_mean, path_start, normalized_size), dim=-1)
+
     def update(self, selected_tail: Tensor, selected_head: Tensor) -> BatchedTSPState:
         """Add one legal edge per batch item and return a new state."""
         self._validate_action_vector(selected_tail, "selected_tail")

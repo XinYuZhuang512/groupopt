@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 import json
 import os
 import time
@@ -10,13 +11,14 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from torch import nn
 
 from groupopt.models.am import AdaptiveAttentionModel
 from groupopt.training import reinforce_loss
 
 
 def evaluate(
-    model: AdaptiveAttentionModel,
+    model: nn.Module,
     coordinates: torch.Tensor,
     base_mode: str,
 ) -> float:
@@ -26,7 +28,20 @@ def evaluate(
     return output.cost.mean().item()
 
 
-def run(args: argparse.Namespace) -> None:
+def build_am_model(args: argparse.Namespace) -> nn.Module:
+    return AdaptiveAttentionModel(
+        embedding_dim=args.embedding_dim,
+        n_heads=args.heads,
+        n_encoder_layers=args.encoder_layers,
+        feed_forward_dim=args.feed_forward_dim,
+        normalization=args.normalization,
+    )
+
+
+def run(
+    args: argparse.Namespace,
+    model_builder: Callable[[argparse.Namespace], nn.Module] = build_am_model,
+) -> None:
     _validate_args(args)
     output_dir = Path(args.output_dir).resolve()
     checkpoint_dir = output_dir / "checkpoints"
@@ -42,13 +57,7 @@ def run(args: argparse.Namespace) -> None:
         torch.cuda.manual_seed_all(args.seed)
         torch.cuda.reset_peak_memory_stats(device)
 
-    model = AdaptiveAttentionModel(
-        embedding_dim=args.embedding_dim,
-        n_heads=args.heads,
-        n_encoder_layers=args.encoder_layers,
-        feed_forward_dim=args.feed_forward_dim,
-        normalization=args.normalization,
-    ).to(device)
+    model = model_builder(args).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
 
     data_generator = torch.Generator(device=device).manual_seed(args.seed + 1)
@@ -197,7 +206,7 @@ def run(args: argparse.Namespace) -> None:
 
 
 def _checkpoint_payload(
-    model: AdaptiveAttentionModel,
+    model: nn.Module,
     optimizer: torch.optim.Optimizer,
     step: int,
     best_cost: float,
