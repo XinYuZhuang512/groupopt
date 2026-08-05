@@ -73,6 +73,14 @@ not superior. Component mean is 0.0754 worse than fixed (`[0.0683, 0.0824]`). Th
 path-start ablation therefore removes the clear loss caused by full state, but a
 multi-seed result is still needed to establish any Pointer Network advantage.
 
+## Rapid multi-seed confirmation
+
+To resolve the Pointer Network tie without broadening the experiment matrix, train
+only `adaptive_state_start` for three additional pre-existing seed values: 2345,
+3456, and 4567. Each run uses the same 10,000-step, batch-512, validation-1024
+protocol as seed 1234 and is immediately evaluated on the same independent test set.
+The four training seeds are then compared against their paired fixed checkpoints.
+
 ## Decision rules
 
 1. If full state beats the static control, dynamic path information contributes beyond
