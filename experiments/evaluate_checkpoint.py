@@ -39,7 +39,10 @@ def load_model(
     incompatible = model.load_state_dict(checkpoint["model"], strict=False)
 
     allowed_missing: set[str] = set()
-    if config.get("model", "am") == "am" and config["base_mode"] != "adaptive_state":
+    if config.get("model", "am") == "am" and config["base_mode"] in (
+        "fixed",
+        "adaptive",
+    ):
         allowed_missing = {
             "project_tail_state.weight",
             "project_state_tail_nodes.weight",

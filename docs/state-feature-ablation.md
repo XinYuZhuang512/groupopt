@@ -47,6 +47,11 @@ tests whether the short-horizon ordering survives the late-training crossover se
 previously in the Pointer Network. It remains a single-seed screening stage; no model
 is promoted on this result alone.
 
+The best checkpoint from each of the four continued runs is then evaluated on the
+same independently generated 10,000-instance TSP50 test set (seed 20260805) used for
+the earlier fixed/adaptive/full-state comparison. This is the inexpensive
+generalization check before commissioning more training seeds.
+
 ## Decision rules
 
 1. If full state beats the static control, dynamic path information contributes beyond
