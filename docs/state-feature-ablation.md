@@ -81,6 +81,25 @@ only `adaptive_state_start` for three additional pre-existing seed values: 2345,
 protocol as seed 1234 and is immediately evaluated on the same independent test set.
 The four training seeds are then compared against their paired fixed checkpoints.
 
+### Confirmation results
+
+| Training seed | Path-start test cost | Fixed test cost | Path start - fixed |
+| ---: | ---: | ---: | ---: |
+| 1234 | 6.3400 | 6.3412 | -0.0012 |
+| 2345 | 6.3608 | 6.3010 | +0.0598 |
+| 3456 | 6.3698 | 6.3078 | +0.0620 |
+| 4567 | 6.3816 | 6.3033 | +0.0783 |
+| Mean | 6.3631 | 6.3133 | +0.0497 |
+
+Path start wins only one of four seeds, with that win effectively a tie, and is
+worse by about 0.79% on the four-seed mean. The seed-level 95% CI for the paired
+difference is `[-0.0059, 0.1054]`; it crosses zero because only four seeds were used,
+but the observed direction does not support a stable advantage over fixed. We stop
+this PtrNet branch rather than spend more compute on two additional seeds. The
+ablation remains diagnostically useful: path start repairs much of the degradation
+from the original full-state input, but does not make adaptive construction
+competitive with fixed construction in this model.
+
 ## Decision rules
 
 1. If full state beats the static control, dynamic path information contributes beyond
