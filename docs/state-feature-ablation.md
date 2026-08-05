@@ -38,6 +38,15 @@ compare the curves and final validation costs, choose only clearly informative m
 then run multi-seed training and independent held-out evaluation before drawing a
 claim.
 
+## Long-horizon follow-up
+
+The 2,000-step screen selected `adaptive_state_mean` and
+`adaptive_state_start`. For both model families, these exact seed-1234 runs are
+continued from their 2,000-step checkpoints to 10,000 total steps. This follow-up
+tests whether the short-horizon ordering survives the late-training crossover seen
+previously in the Pointer Network. It remains a single-seed screening stage; no model
+is promoted on this result alone.
+
 ## Decision rules
 
 1. If full state beats the static control, dynamic path information contributes beyond

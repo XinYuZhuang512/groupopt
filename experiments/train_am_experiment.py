@@ -242,11 +242,20 @@ def _write_or_validate_config(
 ) -> None:
     if path.exists():
         existing = json.loads(path.read_text(encoding="utf-8"))
-        if existing != config:
+        comparable_existing = {key: value for key, value in existing.items() if key != "steps"}
+        comparable_config = {key: value for key, value in config.items() if key != "steps"}
+        if comparable_existing != comparable_config:
             raise ValueError("experiment config differs from the existing output directory")
         if not resuming:
             raise FileExistsError(
                 "output directory already contains an experiment; use --resume"
+            )
+        if int(config["steps"]) < int(existing["steps"]):
+            raise ValueError("resume training horizon cannot be shorter than the existing one")
+        if config != existing:
+            path.write_text(
+                json.dumps(config, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
             )
         return
     if resuming:
