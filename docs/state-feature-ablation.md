@@ -52,6 +52,27 @@ same independently generated 10,000-instance TSP50 test set (seed 20260805) used
 the earlier fixed/adaptive/full-state comparison. This is the inexpensive
 generalization check before commissioning more training seeds.
 
+## Seed-1234 long-horizon results
+
+| Model | State summary | Best validation cost | Independent mean cost |
+| --- | --- | ---: | ---: |
+| AM | component mean | 6.0737 | 6.0864 |
+| AM | path start | 6.1517 | 6.1796 |
+| Pointer Network | component mean | 6.4112 | 6.4165 |
+| Pointer Network | path start | 6.3141 | 6.3400 |
+
+On the same independent instances and training seed, the AM component-mean model
+beats fixed by 0.3302 cost units (paired 95% CI `[-0.3369, -0.3236]`) but is 0.0073
+worse than full state (`[0.0029, 0.0116]`). Thus the mean block preserves nearly all
+of the full-state gain but does not improve on it.
+
+For the Pointer Network, path start beats full state by 0.0439 cost units
+(`[-0.0504, -0.0374]`). Against fixed, however, its difference is only -0.0012 with
+CI `[-0.0078, 0.0054]` and a 49.99% per-instance win rate: it is statistically tied,
+not superior. Component mean is 0.0754 worse than fixed (`[0.0683, 0.0824]`). The
+path-start ablation therefore removes the clear loss caused by full state, but a
+multi-seed result is still needed to establish any Pointer Network advantage.
+
 ## Decision rules
 
 1. If full state beats the static control, dynamic path information contributes beyond
