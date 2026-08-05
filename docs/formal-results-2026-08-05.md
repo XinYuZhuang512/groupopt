@@ -23,30 +23,32 @@
 `adaptive_state` 在 5/5 个配对 seed 上胜过 fixed 和 adaptive；平均相对 fixed
 改善 5.30%，相对 adaptive 改善 5.77%。峰值模型显存约 8.22 GiB。
 
-## Pointer Network：暂停时状态
+## Pointer Network：已完成
 
 | seed | fixed | adaptive | adaptive_state |
 |---:|---:|---:|---:|
 | 1234 | 6.340660 | 6.490411 | 6.373386 |
 | 2345 | 6.304067 | 6.478384 | 6.361577 |
 | 3456 | 6.306364 | 6.481494 | 6.357069 |
-| 4567 | 6.289928 | 6.471039 | 6.482329（验证到 step 4,750，未完成） |
-| 5678 | 未运行 | 未运行 | 未运行 |
+| 4567 | **6.289928** | 6.471039 | 6.345733 |
+| 5678 | **6.352699** | 6.467739 | 6.365465 |
+| mean | **6.318744** | 6.477814 | 6.360646 |
+| sample SD | 0.026610 | 0.008944 | 0.010266 |
 
-完整的前四个 seed 中，fixed 与 adaptive 的均值分别为 6.310255 和 6.480332，
-adaptive 比 fixed 差 2.70%。前三个完整 seed 的 `adaptive_state` 均值为
-6.364010：比 adaptive 好 1.79%，但比 fixed 差 0.85%。
+`adaptive_state` 在 5/5 个配对 seed 上胜过 adaptive，平均改善 1.81%；但在
+5/5 个 seed 上都不如 fixed，平均差 0.66%。adaptive 比 fixed 平均差 2.52%。
+fixed、adaptive 和 adaptive_state 的峰值模型显存分别约为 1.59、2.86 和
+5.37 GiB。
 
 阶段性解释：PtrNet 上 adaptive 与 adaptive_state 在早期训练收敛更快；到
-10,000 steps 后 fixed 当前更优。路径状态编码仍稳定改善朴素 adaptive，但尚未
-跨模型稳定胜过 fixed。
+10,000 steps 后 fixed 更优。路径状态编码稳定改善朴素 adaptive，但没有跨模型
+稳定胜过 fixed。
 
-## 暂停信息
+## 完成与恢复记录
 
 - 记录时间：2026-08-05 00:35 CST
-- PtrNet 总计划：150,000 steps（3 modes × 5 seeds）
-- 已记录训练进度：114,823 / 150,000 steps（76.55%）
-- 中断目标：`ptrnet_tsp50_adaptive_state_seed4567`
-- 可恢复 checkpoint：`interrupted.pt`，step 4,823，best cost 6.482329
-- 恢复入口：`experiments/run_ptrnet_formal_tsp50.sh`
-- 脚本会优先从 `interrupted.pt`（若比 `latest.pt` 新）恢复。
+- PtrNet 总计划与完成量：150,000 / 150,000 steps（3 modes × 5 seeds）
+- seed 4567 的 adaptive_state 曾在 step 4,823 中断，并从原子 checkpoint
+  成功恢复至 step 10,000；其余组按计划完成。
+- 原始 `config.json` 与 `metrics.jsonl` 已备份到
+  `artifacts/server-backup-2026-08-05/formal/`。
