@@ -57,3 +57,17 @@ State improves on plain adaptive by about 1.73%, but remains about 0.68% worse t
 fixed at 2,000 steps. Because the state-aware curve obtains its best value at step
 1,900 and is still improving, continue only `fixed` and `adaptive_state` from their
 existing checkpoints to 10,000 total steps. Plain adaptive is screened out.
+
+## Seed-1234 long-horizon result
+
+| Mode | Best validation cost | Independent mean cost |
+| --- | ---: | ---: |
+| `fixed` | 6.2101 | 6.2248 |
+| `adaptive_state` | **6.1966** | **6.2065** |
+
+Both modes were continued from step 2,000 to step 10,000. On the independent
+10,000-instance test set, state-aware adaptive construction improves on fixed by
+0.0183 cost units (about 0.29%). The paired per-instance 95% CI for
+`adaptive_state - fixed` is `[-0.0242, -0.0124]`, with a 52.07% instance win rate.
+This is a positive single-training-seed result and motivates a small multi-seed
+confirmation rather than an immediate full experiment matrix.

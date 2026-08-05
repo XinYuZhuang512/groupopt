@@ -57,6 +57,14 @@ fixed、adaptive 和 adaptive_state 的峰值模型显存分别约为 1.59、2.8
 它能修复完整状态的一部分退化，但不能稳定胜过 fixed。下一模型转向 Graph
 Pointer Network。
 
+## Graph Pointer Network：单种子长时程结果
+
+GPN 的 2,000-step pilot 筛除朴素 adaptive 后，将 fixed 与 adaptive_state 续训
+至 10,000 steps。seed 1234 的独立测试 cost 分别为 6.224794 和 6.206470；
+adaptive_state 改善 0.018324（约 0.29%），同实例配对 95% CI 为
+`[-0.024229, -0.012420]`。这是继 AM 后第二个正向模型结果，但目前只有一个
+训练 seed，下一步采用三个新增 seed 做快速确认。
+
 ## 完成与恢复记录
 
 - 记录时间：2026-08-05 00:35 CST
