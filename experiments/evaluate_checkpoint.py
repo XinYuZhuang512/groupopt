@@ -13,12 +13,19 @@ import torch
 from torch import nn
 
 from groupopt.models.am import AdaptiveAttentionModel
+from groupopt.models.gpn import AdaptiveGraphPointerNetwork
 from groupopt.models.ptrnet import AdaptivePointerNetwork
 
 
 def build_model(config: dict[str, Any]) -> nn.Module:
-    if config.get("model", "am") == "ptrnet":
+    model_name = config.get("model", "am")
+    if model_name == "ptrnet":
         return AdaptivePointerNetwork(
+            embedding_dim=int(config["embedding_dim"]),
+            n_encoder_layers=int(config["encoder_layers"]),
+        )
+    if model_name == "gpn":
+        return AdaptiveGraphPointerNetwork(
             embedding_dim=int(config["embedding_dim"]),
             n_encoder_layers=int(config["encoder_layers"]),
         )

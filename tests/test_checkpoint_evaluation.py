@@ -6,6 +6,7 @@ import torch
 
 from experiments.evaluate_checkpoint import load_model
 from groupopt.models.am import AdaptiveAttentionModel
+from groupopt.models.gpn import AdaptiveGraphPointerNetwork
 from groupopt.models.ptrnet import AdaptivePointerNetwork
 
 
@@ -21,6 +22,7 @@ class CheckpointEvaluationModelBuilderTests(unittest.TestCase):
                 normalization="layer",
             ),
             AdaptivePointerNetwork(embedding_dim=16),
+            AdaptiveGraphPointerNetwork(embedding_dim=16, n_encoder_layers=1),
         )
         for model in models:
             model.eval()
