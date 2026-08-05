@@ -44,3 +44,16 @@ layers, greedy validation every 100 steps, and the same centered REINFORCE objec
 as the AM and Pointer Network experiments. This pilot answers only whether the GPN
 adapter trains normally and whether adaptive state is promising enough for a
 10,000-step follow-up.
+
+### Pilot results
+
+| Mode | Best validation cost | Peak GPU memory |
+| --- | ---: | ---: |
+| `fixed` | 6.3601 | 1.75 GiB |
+| `adaptive` | 6.5159 | 3.03 GiB |
+| `adaptive_state` | 6.4031 | 5.54 GiB |
+
+State improves on plain adaptive by about 1.73%, but remains about 0.68% worse than
+fixed at 2,000 steps. Because the state-aware curve obtains its best value at step
+1,900 and is still improving, continue only `fixed` and `adaptive_state` from their
+existing checkpoints to 10,000 total steps. Plain adaptive is screened out.
