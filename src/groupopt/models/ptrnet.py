@@ -9,11 +9,24 @@ from typing import Literal
 import torch
 from torch import Tensor, nn
 
+from groupopt.models.state_features import (
+    ADAPTIVE_BASE_MODES,
+    BASE_MODES,
+    FEATURE_BASE_MODES,
+    select_tail_state_features,
+)
 from groupopt.problems.tsp_tensor import BatchedTSPState
 
-
 DecodeType = Literal["greedy", "sampling"]
-BaseMode = Literal["adaptive", "adaptive_state", "fixed"]
+BaseMode = Literal[
+    "adaptive",
+    "adaptive_static",
+    "adaptive_state_mean",
+    "adaptive_state_start",
+    "adaptive_state_size",
+    "adaptive_state",
+    "fixed",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,7 +109,7 @@ class AdaptivePointerNetwork(nn.Module):
             raise ValueError("coordinates must have shape (batch, nodes, 2)")
         if temperature <= 0:
             raise ValueError("temperature must be positive")
-        if base_mode not in ("adaptive", "adaptive_state", "fixed"):
+        if base_mode not in BASE_MODES:
             raise ValueError(f"unknown base mode: {base_mode}")
 
         inputs = self.input_projection(coordinates)
@@ -111,11 +124,11 @@ class AdaptivePointerNetwork(nn.Module):
         selected_log_probabilities: list[Tensor] = []
 
         while not state.terminal:
-            if base_mode in ("adaptive", "adaptive_state"):
+            if base_mode in ADAPTIVE_BASE_MODES:
                 tail_candidates = node_embeddings
-                if base_mode == "adaptive_state":
+                if base_mode in FEATURE_BASE_MODES:
                     tail_candidates = node_embeddings + self.project_tail_state(
-                        state.path_state_features(node_embeddings)
+                        select_tail_state_features(base_mode, state, node_embeddings)
                     )
                 tail_query = self.project_tail_context(
                     torch.cat((graph_embedding, decoder_hidden), dim=-1)

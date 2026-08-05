@@ -36,7 +36,15 @@ class AdaptivePointerNetworkTests(unittest.TestCase):
     def test_all_base_modes_produce_valid_tours(self) -> None:
         self.model.eval()
         with torch.no_grad():
-            for base_mode in ("fixed", "adaptive", "adaptive_state"):
+            for base_mode in (
+                "fixed",
+                "adaptive",
+                "adaptive_static",
+                "adaptive_state_mean",
+                "adaptive_state_start",
+                "adaptive_state_size",
+                "adaptive_state",
+            ):
                 for decode_type in ("greedy", "sampling"):
                     with self.subTest(base_mode=base_mode, decode_type=decode_type):
                         self._assert_valid_tours(base_mode, decode_type)

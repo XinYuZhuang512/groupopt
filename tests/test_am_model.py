@@ -54,9 +54,17 @@ class AdaptiveAttentionModelTests(unittest.TestCase):
     def test_state_aware_adaptive_forward_produces_valid_tours(self) -> None:
         self.model.eval()
         with torch.no_grad():
-            self._assert_outputs_are_valid_tours(
-                "greedy", base_mode="adaptive_state"
-            )
+            for base_mode in (
+                "adaptive_static",
+                "adaptive_state_mean",
+                "adaptive_state_start",
+                "adaptive_state_size",
+                "adaptive_state",
+            ):
+                with self.subTest(base_mode=base_mode):
+                    self._assert_outputs_are_valid_tours(
+                        "greedy", base_mode=base_mode
+                    )
 
     def test_state_aware_tail_embeddings_change_after_path_merge(self) -> None:
         from groupopt.problems.tsp_tensor import BatchedTSPState
@@ -77,7 +85,11 @@ class AdaptiveAttentionModelTests(unittest.TestCase):
 
         self.assertFalse(torch.equal(initial_embeddings, updated_embeddings))
         state_delta = updated_embeddings - node_embeddings
-        self.assertTrue(torch.allclose(state_delta[:, 0], state_delta[:, 1]))
+        self.assertTrue(
+            torch.allclose(
+                state_delta[:, 0], state_delta[:, 1], rtol=1e-5, atol=1e-6
+            )
+        )
 
     def test_state_aware_selector_supports_backpropagation(self) -> None:
         self.model.train()

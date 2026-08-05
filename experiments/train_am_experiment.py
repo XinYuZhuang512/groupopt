@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable
 import json
 import os
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +14,7 @@ import torch
 from torch import nn
 
 from groupopt.models.am import AdaptiveAttentionModel
+from groupopt.models.state_features import BASE_MODES
 from groupopt.training import reinforce_loss
 
 
@@ -286,15 +287,15 @@ def _validate_args(args: argparse.Namespace) -> None:
     )
     if min(positive) < 1:
         raise ValueError("sizes and step intervals must be positive")
-    if args.base_mode not in ("fixed", "adaptive", "adaptive_state"):
-        raise ValueError("base_mode must be fixed, adaptive, or adaptive_state")
+    if args.base_mode not in BASE_MODES:
+        raise ValueError(f"base_mode must be one of {BASE_MODES}")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--base-mode",
-        choices=("fixed", "adaptive", "adaptive_state"),
+        choices=BASE_MODES,
         required=True,
     )
     parser.add_argument("--output-dir", required=True)

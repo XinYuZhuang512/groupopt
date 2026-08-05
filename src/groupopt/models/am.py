@@ -14,11 +14,24 @@ from typing import Literal
 import torch
 from torch import Tensor, nn
 
+from groupopt.models.state_features import (
+    ADAPTIVE_BASE_MODES,
+    BASE_MODES,
+    FEATURE_BASE_MODES,
+    select_tail_state_features,
+)
 from groupopt.problems.tsp_tensor import BatchedTSPState
 
-
 DecodeType = Literal["greedy", "sampling"]
-BaseMode = Literal["adaptive", "adaptive_state", "fixed"]
+BaseMode = Literal[
+    "adaptive",
+    "adaptive_static",
+    "adaptive_state_mean",
+    "adaptive_state_start",
+    "adaptive_state_size",
+    "adaptive_state",
+    "fixed",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,7 +169,7 @@ class AdaptiveAttentionModel(nn.Module):
     ) -> AttentionModelOutput:
         if temperature <= 0:
             raise ValueError("temperature must be positive")
-        if base_mode not in ("adaptive", "adaptive_state", "fixed"):
+        if base_mode not in BASE_MODES:
             raise ValueError(f"unknown base mode: {base_mode}")
 
         node_embeddings, graph_embedding = self.encoder(coordinates)
@@ -174,14 +187,14 @@ class AdaptiveAttentionModel(nn.Module):
         selected_log_probabilities: list[Tensor] = []
 
         while not state.terminal:
-            if base_mode in ("adaptive", "adaptive_state"):
+            if base_mode in ADAPTIVE_BASE_MODES:
                 tail_query = self.project_tail_context(
                     torch.cat((graph_context, last_head_embedding), dim=-1)
                 )
                 tail_key, tail_value, tail_logit_key = key, value, logit_key
-                if base_mode == "adaptive_state":
+                if base_mode in FEATURE_BASE_MODES:
                     state_tail_nodes = self._state_aware_tail_embeddings(
-                        node_embeddings, state
+                        node_embeddings, state, base_mode
                     )
                     tail_key, tail_value, tail_logit_key = self.project_state_tail_nodes(
                         state_tail_nodes
@@ -249,7 +262,10 @@ class AdaptiveAttentionModel(nn.Module):
         )
 
     def _state_aware_tail_embeddings(
-        self, node_embeddings: Tensor, state: BatchedTSPState
+        self,
+        node_embeddings: Tensor,
+        state: BatchedTSPState,
+        base_mode: str = "adaptive_state",
     ) -> Tensor:
         """Attach the current open-path structure to every candidate tail.
 
@@ -258,7 +274,7 @@ class AdaptiveAttentionModel(nn.Module):
         embedding, this exposes both endpoints and the current component geometry.
         """
         return node_embeddings + self.project_tail_state(
-            state.path_state_features(node_embeddings)
+            select_tail_state_features(base_mode, state, node_embeddings)
         )
 
     def _split_heads(self, values: Tensor) -> Tensor:
