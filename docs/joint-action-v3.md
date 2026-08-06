@@ -53,3 +53,24 @@ After unit, exhaustive small-instance, backward, and memory tests, train
 `joint_fixed` and `joint_free` for 2,000 steps with seed 1234 in AM, Pointer Network,
 and GPN. Promote v3 only if free-base behavior is trainable in all three models and
 its quality/runtime tradeoff is more consistent than the legacy two-stage decoder.
+
+## Seed-1234 pilot result
+
+| Model | Fixed validation | Free validation | Fixed test | Free test | Test improvement |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| AM | 6.3023 | **6.2502** | 6.3069 | **6.2697** | 0.59% |
+| Pointer Network | 6.4147 | **6.4007** | 6.4230 | **6.4073** | 0.25% |
+| GPN | 6.4022 | **6.2829** | 6.4142 | **6.3048** | 1.71% |
+
+Each best checkpoint was evaluated greedily on the same 10,000 independent TSP50
+instances. The paired per-instance 95% confidence intervals for `free - fixed` are:
+
+- AM: `[-0.0441, -0.0303]`;
+- Pointer Network: `[-0.0225, -0.0090]`;
+- GPN: `[-0.1165, -0.1025]`.
+
+Free stabilizer-chain construction improves both validation and independent test
+cost in all three architectures. This is the first directionally consistent
+cross-model result in the project, but it still uses one training seed and a short
+2,000-step horizon. V3 therefore passes the pilot screen and should move to a small
+multi-seed confirmation before any broader model or mechanism expansion.
