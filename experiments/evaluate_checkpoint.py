@@ -46,15 +46,27 @@ def load_model(
     incompatible = model.load_state_dict(checkpoint["model"], strict=False)
 
     allowed_missing: set[str] = set()
+    if config["base_mode"] != "gated_adaptive_state":
+        allowed_missing.update(
+            {
+                "tail_gate.projection.weight",
+                "tail_gate.projection.bias",
+            }
+        )
     if config.get("model", "am") == "am" and config["base_mode"] in (
         "fixed",
         "adaptive",
     ):
-        allowed_missing = {
-            "project_tail_state.weight",
-            "project_state_tail_nodes.weight",
-        }
-    if set(incompatible.missing_keys) != allowed_missing or incompatible.unexpected_keys:
+        allowed_missing.update(
+            {
+                "project_tail_state.weight",
+                "project_state_tail_nodes.weight",
+            }
+        )
+    if (
+        not set(incompatible.missing_keys).issubset(allowed_missing)
+        or incompatible.unexpected_keys
+    ):
         raise RuntimeError(
             "checkpoint/model mismatch: "
             f"missing={incompatible.missing_keys}, "

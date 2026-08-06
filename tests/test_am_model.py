@@ -60,6 +60,7 @@ class AdaptiveAttentionModelTests(unittest.TestCase):
                 "adaptive_state_start",
                 "adaptive_state_size",
                 "adaptive_state",
+                "gated_adaptive_state",
             ):
                 with self.subTest(base_mode=base_mode):
                     self._assert_outputs_are_valid_tours(
@@ -103,6 +104,23 @@ class AdaptiveAttentionModelTests(unittest.TestCase):
         assert gradient is not None
         self.assertTrue(torch.isfinite(gradient).all())
         self.assertGreater(gradient.abs().sum().item(), 0.0)
+
+    def test_gated_selector_is_conservative_and_backpropagates(self) -> None:
+        self.model.train()
+        output = self.model(
+            self.coordinates,
+            decode_type="sampling",
+            base_mode="gated_adaptive_state",
+        )
+        (-output.log_likelihood.mean()).backward()
+
+        gradient = self.model.tail_gate.projection.weight.grad
+        self.assertIsNotNone(gradient)
+        assert gradient is not None
+        self.assertGreater(gradient.abs().sum().item(), 0.0)
+        self.assertTrue(torch.isfinite(output.tail_entropy).all())
+        self.assertTrue(torch.all((output.gate_probability > 0.0)))
+        self.assertTrue(torch.all((output.gate_probability < 0.5)))
 
     def test_fixed_base_forward_is_a_continuous_anchored_path(self) -> None:
         self.model.eval()

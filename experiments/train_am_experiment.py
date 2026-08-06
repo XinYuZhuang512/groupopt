@@ -150,6 +150,8 @@ def run(
                     "best_validation_greedy_cost": best_cost,
                     "elapsed_seconds": time.monotonic() - started_at,
                     "peak_gpu_memory_gb": _peak_memory_gb(device),
+                    "tail_entropy": output.tail_entropy.mean().item(),
+                    "gate_probability": output.gate_probability.mean().item(),
                 }
                 _append_metric(metrics_path, metric)
                 print(
@@ -158,6 +160,8 @@ def run(
                     f"loss={metric['reinforce_loss']:.6f} "
                     f"val_greedy_cost={validation_cost:.6f} "
                     f"best={best_cost:.6f} "
+                    f"tail_entropy={metric['tail_entropy']:.4f} "
+                    f"gate={metric['gate_probability']:.4f} "
                     f"peak_gb={metric['peak_gpu_memory_gb']:.3f}",
                     flush=True,
                 )

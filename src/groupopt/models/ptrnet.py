@@ -15,6 +15,11 @@ from groupopt.models.state_features import (
     FEATURE_BASE_MODES,
     select_tail_state_features,
 )
+from groupopt.models.tail_gate import (
+    StateAwareTailGate,
+    categorical_entropy,
+    mix_with_fixed_tail,
+)
 from groupopt.problems.tsp_tensor import BatchedTSPState
 
 DecodeType = Literal["greedy", "sampling"]
@@ -25,6 +30,7 @@ BaseMode = Literal[
     "adaptive_state_start",
     "adaptive_state_size",
     "adaptive_state",
+    "gated_adaptive_state",
     "fixed",
 ]
 
@@ -36,6 +42,8 @@ class PointerNetworkOutput:
     tails: Tensor
     heads: Tensor
     successor: Tensor
+    tail_entropy: Tensor
+    gate_probability: Tensor
 
 
 class _PointerAttention(nn.Module):
@@ -93,6 +101,7 @@ class AdaptivePointerNetwork(nn.Module):
         self.project_tail_state = nn.Linear(
             2 * embedding_dim + 1, embedding_dim, bias=False
         )
+        self.tail_gate = StateAwareTailGate(embedding_dim)
         self.tail_pointer = _PointerAttention(embedding_dim, tanh_clipping)
         self.head_pointer = _PointerAttention(embedding_dim, tanh_clipping)
 
@@ -122,6 +131,8 @@ class AdaptivePointerNetwork(nn.Module):
         tails: list[Tensor] = []
         heads: list[Tensor] = []
         selected_log_probabilities: list[Tensor] = []
+        tail_entropies: list[Tensor] = []
+        gate_probabilities: list[Tensor] = []
 
         while not state.terminal:
             if base_mode in ADAPTIVE_BASE_MODES:
@@ -136,12 +147,33 @@ class AdaptivePointerNetwork(nn.Module):
                 tail_log_p = self.tail_pointer(
                     tail_query, tail_candidates, state.tail_mask(), temperature
                 )
+                gate_probability = torch.zeros(
+                    state.batch_size,
+                    dtype=node_embeddings.dtype,
+                    device=node_embeddings.device,
+                )
+                if base_mode == "gated_adaptive_state":
+                    gate_probability = self.tail_gate(state, node_embeddings)
+                    tail_log_p = mix_with_fixed_tail(
+                        tail_log_p,
+                        state.sequential_base(anchor),
+                        gate_probability,
+                    )
                 selected_tail = _select(tail_log_p, decode_type, generator)
                 selected_log_probabilities.append(
                     tail_log_p.gather(1, selected_tail[:, None]).squeeze(1)
                 )
+                tail_entropies.append(categorical_entropy(tail_log_p))
+                gate_probabilities.append(gate_probability)
             else:
                 selected_tail = state.sequential_base(anchor)
+                zeros = torch.zeros(
+                    state.batch_size,
+                    dtype=node_embeddings.dtype,
+                    device=node_embeddings.device,
+                )
+                tail_entropies.append(zeros)
+                gate_probabilities.append(zeros)
 
             tail_embedding = _gather_nodes(node_embeddings, selected_tail)
             head_query = self.project_head_context(
@@ -174,6 +206,8 @@ class AdaptivePointerNetwork(nn.Module):
             tails=tail_tensor,
             heads=head_tensor,
             successor=state.successor,
+            tail_entropy=torch.stack(tail_entropies, dim=1).mean(dim=1),
+            gate_probability=torch.stack(gate_probabilities, dim=1).mean(dim=1),
         )
 
 

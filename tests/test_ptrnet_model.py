@@ -44,6 +44,7 @@ class AdaptivePointerNetworkTests(unittest.TestCase):
                 "adaptive_state_start",
                 "adaptive_state_size",
                 "adaptive_state",
+                "gated_adaptive_state",
             ):
                 for decode_type in ("greedy", "sampling"):
                     with self.subTest(base_mode=base_mode, decode_type=decode_type):
@@ -72,6 +73,20 @@ class AdaptivePointerNetworkTests(unittest.TestCase):
         assert gradient is not None
         self.assertTrue(torch.isfinite(gradient).all())
         self.assertGreater(gradient.abs().sum().item(), 0.0)
+
+    def test_gated_mode_backpropagates_through_gate(self) -> None:
+        self.model.train()
+        output = self.model(
+            self.coordinates,
+            base_mode="gated_adaptive_state",
+            decode_type="sampling",
+        )
+        (-output.log_likelihood.mean()).backward()
+        gradient = self.model.tail_gate.projection.weight.grad
+        self.assertIsNotNone(gradient)
+        assert gradient is not None
+        self.assertGreater(gradient.abs().sum().item(), 0.0)
+        self.assertTrue(torch.isfinite(output.tail_entropy).all())
 
 
 if __name__ == "__main__":

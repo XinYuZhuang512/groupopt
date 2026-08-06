@@ -15,6 +15,7 @@ BASE_MODES = (
     "adaptive_state_start",
     "adaptive_state_size",
     "adaptive_state",
+    "gated_adaptive_state",
 )
 ADAPTIVE_BASE_MODES = BASE_MODES[1:]
 FEATURE_BASE_MODES = BASE_MODES[2:]
