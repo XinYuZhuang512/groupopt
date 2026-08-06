@@ -14,10 +14,12 @@ from typing import Literal
 import torch
 from torch import Tensor, nn
 
+from groupopt.models.joint_action import PairActionScorer, decode_joint_actions
 from groupopt.models.state_features import (
     ADAPTIVE_BASE_MODES,
     BASE_MODES,
     FEATURE_BASE_MODES,
+    JOINT_BASE_MODES,
     select_tail_state_features,
 )
 from groupopt.models.tail_gate import (
@@ -36,6 +38,8 @@ BaseMode = Literal[
     "adaptive_state_size",
     "adaptive_state",
     "gated_adaptive_state",
+    "joint_fixed",
+    "joint_free",
     "fixed",
 ]
 
@@ -49,6 +53,7 @@ class AttentionModelOutput:
     successor: Tensor
     tail_entropy: Tensor
     gate_probability: Tensor
+    action_entropy: Tensor
 
 
 class _Normalization(nn.Module):
@@ -164,6 +169,7 @@ class AdaptiveAttentionModel(nn.Module):
             embedding_dim, 3 * embedding_dim, bias=False
         )
         self.tail_gate = StateAwareTailGate(embedding_dim)
+        self.joint_action_scorer = PairActionScorer(embedding_dim, tanh_clipping)
         self.first_step_context = nn.Parameter(torch.empty(embedding_dim))
         nn.init.uniform_(self.first_step_context, -1.0, 1.0)
 
@@ -182,6 +188,28 @@ class AdaptiveAttentionModel(nn.Module):
             raise ValueError(f"unknown base mode: {base_mode}")
 
         node_embeddings, graph_embedding = self.encoder(coordinates)
+        if base_mode in JOINT_BASE_MODES:
+            joint = decode_joint_actions(
+                coordinates,
+                node_embeddings,
+                self.joint_action_scorer,
+                base_mode,
+                decode_type,
+                anchor,
+                temperature,
+                generator,
+            )
+            zeros = torch.zeros_like(joint.cost)
+            return AttentionModelOutput(
+                cost=joint.cost,
+                log_likelihood=joint.log_likelihood,
+                tails=joint.tails,
+                heads=joint.heads,
+                successor=joint.successor,
+                tail_entropy=zeros,
+                gate_probability=zeros,
+                action_entropy=joint.action_entropy,
+            )
         state = BatchedTSPState.initialize(coordinates)
         graph_context = self.project_graph(graph_embedding)
         key, value, logit_key = self.project_nodes(node_embeddings).chunk(3, dim=-1)
@@ -293,6 +321,11 @@ class AdaptiveAttentionModel(nn.Module):
             successor=state.successor,
             tail_entropy=torch.stack(tail_entropies, dim=1).mean(dim=1),
             gate_probability=torch.stack(gate_probabilities, dim=1).mean(dim=1),
+            action_entropy=torch.zeros(
+                state.batch_size,
+                dtype=node_embeddings.dtype,
+                device=node_embeddings.device,
+            ),
         )
 
     def _state_aware_tail_embeddings(

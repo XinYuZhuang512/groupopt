@@ -61,6 +61,8 @@ class AdaptiveAttentionModelTests(unittest.TestCase):
                 "adaptive_state_size",
                 "adaptive_state",
                 "gated_adaptive_state",
+                "joint_fixed",
+                "joint_free",
             ):
                 with self.subTest(base_mode=base_mode):
                     self._assert_outputs_are_valid_tours(
@@ -121,6 +123,31 @@ class AdaptiveAttentionModelTests(unittest.TestCase):
         self.assertTrue(torch.isfinite(output.tail_entropy).all())
         self.assertTrue(torch.all((output.gate_probability > 0.0)))
         self.assertTrue(torch.all((output.gate_probability < 0.5)))
+
+    def test_joint_free_backpropagates_through_pair_scorer(self) -> None:
+        self.model.train()
+        output = self.model(
+            self.coordinates,
+            decode_type="sampling",
+            base_mode="joint_free",
+        )
+        (-output.log_likelihood.mean()).backward()
+        gradient = self.model.joint_action_scorer.project_tails.weight.grad
+        self.assertIsNotNone(gradient)
+        assert gradient is not None
+        self.assertGreater(gradient.abs().sum().item(), 0.0)
+        self.assertTrue(torch.isfinite(output.action_entropy).all())
+
+    def test_joint_fixed_is_a_continuous_anchored_path(self) -> None:
+        self.model.eval()
+        with torch.no_grad():
+            output = self.model(
+                self.coordinates,
+                decode_type="sampling",
+                base_mode="joint_fixed",
+            )
+        self.assertTrue(torch.equal(output.tails[:, 0], torch.zeros(4, dtype=torch.long)))
+        self.assertTrue(torch.equal(output.tails[:, 1:], output.heads[:, :-1]))
 
     def test_fixed_base_forward_is_a_continuous_anchored_path(self) -> None:
         self.model.eval()

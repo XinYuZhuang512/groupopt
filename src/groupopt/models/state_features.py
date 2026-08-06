@@ -7,8 +7,7 @@ from torch import Tensor
 
 from groupopt.problems.tsp_tensor import BatchedTSPState
 
-BASE_MODES = (
-    "fixed",
+ADAPTIVE_BASE_MODES = (
     "adaptive",
     "adaptive_static",
     "adaptive_state_mean",
@@ -17,8 +16,9 @@ BASE_MODES = (
     "adaptive_state",
     "gated_adaptive_state",
 )
-ADAPTIVE_BASE_MODES = BASE_MODES[1:]
-FEATURE_BASE_MODES = BASE_MODES[2:]
+FEATURE_BASE_MODES = ADAPTIVE_BASE_MODES[1:]
+JOINT_BASE_MODES = ("joint_fixed", "joint_free")
+BASE_MODES = ("fixed", *ADAPTIVE_BASE_MODES, *JOINT_BASE_MODES)
 
 
 def select_tail_state_features(

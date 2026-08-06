@@ -50,6 +50,8 @@ class AdaptiveGraphPointerNetworkTests(unittest.TestCase):
                 "adaptive_state_size",
                 "adaptive_state",
                 "gated_adaptive_state",
+                "joint_fixed",
+                "joint_free",
             ):
                 for decode_type in ("greedy", "sampling"):
                     with self.subTest(base_mode=base_mode, decode_type=decode_type):
@@ -96,6 +98,20 @@ class AdaptiveGraphPointerNetworkTests(unittest.TestCase):
         assert gradient is not None
         self.assertGreater(gradient.abs().sum().item(), 0.0)
         self.assertTrue(torch.isfinite(output.tail_entropy).all())
+
+    def test_joint_free_backpropagates_through_pair_scorer(self) -> None:
+        self.model.train()
+        output = self.model(
+            self.coordinates,
+            base_mode="joint_free",
+            decode_type="sampling",
+        )
+        (-output.log_likelihood.mean()).backward()
+        gradient = self.model.joint_action_scorer.project_tails.weight.grad
+        self.assertIsNotNone(gradient)
+        assert gradient is not None
+        self.assertGreater(gradient.abs().sum().item(), 0.0)
+        self.assertTrue(torch.isfinite(output.action_entropy).all())
 
     def test_relative_vector_context_changes_with_current_node(self) -> None:
         candidates = self.model._relative_context(

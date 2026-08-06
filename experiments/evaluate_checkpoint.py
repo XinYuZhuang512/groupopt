@@ -53,6 +53,12 @@ def load_model(
                 "tail_gate.projection.bias",
             }
         )
+    if config["base_mode"] not in ("joint_fixed", "joint_free"):
+        allowed_missing.update(
+            key
+            for key in model.state_dict()
+            if key.startswith("joint_action_scorer.")
+        )
     if config.get("model", "am") == "am" and config["base_mode"] in (
         "fixed",
         "adaptive",

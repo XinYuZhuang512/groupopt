@@ -152,6 +152,7 @@ def run(
                     "peak_gpu_memory_gb": _peak_memory_gb(device),
                     "tail_entropy": output.tail_entropy.mean().item(),
                     "gate_probability": output.gate_probability.mean().item(),
+                    "action_entropy": output.action_entropy.mean().item(),
                 }
                 _append_metric(metrics_path, metric)
                 print(
@@ -162,6 +163,7 @@ def run(
                     f"best={best_cost:.6f} "
                     f"tail_entropy={metric['tail_entropy']:.4f} "
                     f"gate={metric['gate_probability']:.4f} "
+                    f"action_entropy={metric['action_entropy']:.4f} "
                     f"peak_gb={metric['peak_gpu_memory_gb']:.3f}",
                     flush=True,
                 )

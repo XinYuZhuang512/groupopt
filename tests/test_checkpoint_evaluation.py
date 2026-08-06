@@ -58,6 +58,26 @@ class CheckpointEvaluationModelBuilderTests(unittest.TestCase):
 
         self.assertIsInstance(loaded, AdaptiveAttentionModel)
 
+    def test_pre_joint_checkpoint_remains_loadable(self) -> None:
+        model = AdaptiveGraphPointerNetwork(embedding_dim=16, n_encoder_layers=1)
+        legacy_state = {
+            key: value
+            for key, value in model.state_dict().items()
+            if not key.startswith("joint_action_scorer.")
+        }
+        config = {
+            "base_mode": "adaptive_state",
+            "embedding_dim": 16,
+            "encoder_layers": 1,
+            "model": "gpn",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint = Path(directory) / "checkpoint.pt"
+            torch.save({"model": legacy_state}, checkpoint)
+            loaded, _ = load_model(checkpoint, config, torch.device("cpu"))
+
+        self.assertIsInstance(loaded, AdaptiveGraphPointerNetwork)
+
 
 if __name__ == "__main__":
     unittest.main()

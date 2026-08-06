@@ -79,6 +79,41 @@ class BatchedTSPStateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "node_embeddings"):
             state.path_state_features(torch.rand(2, 4, 3))
 
+    def test_joint_edge_mask_matches_reference_candidates(self) -> None:
+        coordinates = torch.rand(2, 5, 2)
+        state = BatchedTSPState.initialize(coordinates)
+        state = state.update(torch.tensor([0, 3]), torch.tensor([1, 4]))
+        process = DirectedTSPConstruction()
+        references = [
+            process.transition(process.initial_state(5), 0, 1),
+            process.transition(process.initial_state(5), 3, 4),
+        ]
+
+        mask = state.edge_action_mask()
+        for batch_index, reference in enumerate(references):
+            expected = {
+                (tail, head)
+                for tail in process.base_candidates(reference)
+                for head in process.representative_candidates(reference, tail)
+            }
+            actual = {
+                (tail, head)
+                for tail in range(5)
+                for head in range(5)
+                if not mask[batch_index, tail, head]
+            }
+            self.assertEqual(actual, expected)
+
+    def test_joint_fixed_mask_only_exposes_anchored_tail(self) -> None:
+        state = BatchedTSPState.initialize(torch.rand(2, 4, 2))
+        state = state.update(torch.tensor([0, 0]), torch.tensor([2, 1]))
+        fixed_tail = state.sequential_base()
+        mask = state.edge_action_mask(fixed_tail)
+
+        legal_tails = (~mask).any(dim=2).to(torch.long).argmax(dim=1)
+        self.assertTrue(torch.equal(legal_tails, fixed_tail))
+        self.assertTrue((~mask).flatten(1).any(dim=1).all())
+
 
 if __name__ == "__main__":
     unittest.main()

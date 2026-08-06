@@ -78,6 +78,37 @@ class BatchedTSPState:
         same_component = self.component == tail_component
         return basic_mask | same_component
 
+    def edge_action_mask(self, fixed_tail: Tensor | None = None) -> Tensor:
+        """Mask illegal joint ``(tail, head)`` construction actions."""
+        if self.terminal:
+            return torch.ones(
+                self.batch_size,
+                self.n,
+                self.n,
+                dtype=torch.bool,
+                device=self.coordinates.device,
+            )
+
+        tail_mask = self.tail_mask().unsqueeze(2)
+        head_mask = (self.predecessor >= 0).unsqueeze(1)
+        mask = tail_mask | head_mask
+        if self.edges_added < self.n - 1:
+            same_component = self.component.unsqueeze(2) == self.component.unsqueeze(1)
+            mask = mask | same_component
+
+        if fixed_tail is not None:
+            self._validate_action_vector(fixed_tail, "fixed_tail")
+            batch = torch.arange(self.batch_size, device=self.coordinates.device)
+            if self.tail_mask()[batch, fixed_tail].any():
+                raise ValueError("fixed_tail contains a masked vertex")
+            allowed_tail = torch.zeros_like(self.tail_mask())
+            allowed_tail[batch, fixed_tail] = True
+            mask = mask | ~allowed_tail.unsqueeze(2)
+
+        if mask.flatten(1).all(dim=1).any():
+            raise ValueError("each nonterminal state must have a legal edge action")
+        return mask
+
     def sequential_base(self, anchor: int = 0) -> Tensor:
         """Return the unique tail of each batch item's anchored component."""
         if self.terminal:
