@@ -34,3 +34,19 @@ Reuse the existing seed-1234, 2,000-step `fixed` and `adaptive_state` pilots. Tr
 only `gated_adaptive_state` for AM, Pointer Network, and GPN with their existing
 TSP50 pilot configurations. Promote the mechanism only if it avoids a meaningful
 loss to fixed in all three models and improves at least two models.
+
+## Seed-1234 pilot result
+
+| Model | Fixed best | State best | Gated best | Final gate |
+| --- | ---: | ---: | ---: | ---: |
+| AM | 6.7826 | **6.4513** | 6.7715 | 0.0605 |
+| Pointer Network | 7.3011 | **6.6581** | 6.6943 | 0.9990 |
+| GPN | **6.3601** | 6.4031 | 6.3609 | 0.0003 |
+
+All values are truncated to the common 2,000-step budget. The gate learns sharply
+different behavior across architectures: Pointer Network adopts the adaptive policy,
+GPN almost completely falls back to fixed, and AM remains conservative. Gated v2
+avoids a meaningful loss to fixed in all three models and improves AM slightly and
+Pointer Network substantially, so it passes the predefined pilot screen. Its next
+test is a seed-1234 continuation to 10,000 steps, where the original Pointer Network
+early advantage previously disappeared.
