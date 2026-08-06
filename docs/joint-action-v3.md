@@ -74,3 +74,36 @@ cost in all three architectures. This is the first directionally consistent
 cross-model result in the project, but it still uses one training seed and a short
 2,000-step horizon. V3 therefore passes the pilot screen and should move to a small
 multi-seed confirmation before any broader model or mechanism expansion.
+
+## Four-seed confirmation
+
+Train both modes from scratch with seeds 2345, 3456, and 4567 under the same
+2,000-step protocol, then evaluate every best checkpoint on the frozen independent
+test set.
+
+| Model | Seed | Fixed test | Free test | Free - fixed |
+| --- | ---: | ---: | ---: | ---: |
+| AM | 1234 | 6.3069 | 6.2697 | -0.0372 |
+| AM | 2345 | 6.3181 | 6.2666 | -0.0514 |
+| AM | 3456 | 6.3155 | 6.2306 | -0.0849 |
+| AM | 4567 | 6.3269 | 6.2603 | -0.0666 |
+| Pointer Network | 1234 | 6.4230 | 6.4073 | -0.0158 |
+| Pointer Network | 2345 | 6.4149 | 6.3990 | -0.0158 |
+| Pointer Network | 3456 | 6.3993 | 6.3426 | -0.0566 |
+| Pointer Network | 4567 | 6.4309 | 6.4008 | -0.0300 |
+| GPN | 1234 | 6.4142 | 6.3048 | -0.1095 |
+| GPN | 2345 | 6.4168 | 6.2464 | -0.1704 |
+| GPN | 3456 | 6.4092 | 6.2497 | -0.1595 |
+| GPN | 4567 | 6.4259 | 6.3275 | -0.0984 |
+
+| Model | Mean fixed | Mean free | Relative improvement | Seed-level 95% CI | Wins |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| AM | 6.3168 | 6.2568 | 0.95% | `[-0.0926, -0.0275]` | 4/4 |
+| Pointer Network | 6.4170 | 6.3874 | 0.46% | `[-0.0602, 0.0011]` | 4/4 |
+| GPN | 6.4165 | 6.2821 | 2.10% | `[-0.1914, -0.0775]` | 4/4 |
+
+Joint free wins all 12 model-seed comparisons. AM and GPN exclude zero at the
+training-seed level; Pointer Network has a narrow interval crossing zero with only
+four seeds, but all observed differences have the same sign. This confirms a stable
+short-horizon cross-model signal and justifies a staged long-horizon test before
+claiming final-quality superiority.
