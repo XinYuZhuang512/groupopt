@@ -71,3 +71,24 @@ Both modes were continued from step 2,000 to step 10,000. On the independent
 `adaptive_state - fixed` is `[-0.0242, -0.0124]`, with a 52.07% instance win rate.
 This is a positive single-training-seed result and motivates a small multi-seed
 confirmation rather than an immediate full experiment matrix.
+
+## Multi-seed confirmation
+
+Train the same two modes from scratch with seeds 2345, 3456, and 4567, preserving
+the seed-1234 protocol exactly. Evaluate each best checkpoint on the same 10,000
+independent TSP50 instances.
+
+| Training seed | Fixed test cost | State test cost | State - fixed |
+| ---: | ---: | ---: | ---: |
+| 1234 | 6.2248 | 6.2065 | -0.0183 |
+| 2345 | 6.2149 | 6.2051 | -0.0098 |
+| 3456 | 6.2256 | 6.2420 | +0.0164 |
+| 4567 | 6.2194 | 6.2274 | +0.0080 |
+| Mean | 6.2212 | 6.2202 | -0.0009 |
+
+State wins two of four training seeds. The mean improvement is only 0.0009 cost
+units (about 0.015%), and the training-seed-level paired 95% CI is
+`[-0.0263, 0.0244]`. The single-seed signal therefore does not generalize into a
+stable GPN advantage. The framework is operational across architectures, but this
+state policy's performance gain remains model dependent; do not expand this GPN
+branch without a revised mechanism.
