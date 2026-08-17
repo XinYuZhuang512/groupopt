@@ -35,8 +35,19 @@ src/groupopt/
 ├── adapters/    # 模型注册与统一构建入口
 └── objectives/  # REINFORCE、SYM-NCO 等训练目标
 
-experiments/     # 训练、独立评估、汇总和服务器编排
-tests/           # 接口、性质和端到端测试
+experiments/
+├── train/       # 单模型训练入口
+├── evaluation/  # 独立 checkpoint 评估
+├── analysis/    # 统计汇总与可视化
+└── pipelines/   # 当前与历史批量实验流程
+
+tests/
+├── framework/   # 接口和依赖边界
+├── problems/    # 状态、约束和分布
+├── models/      # 各模型和 Tail Selector
+├── objectives/  # 训练目标
+└── integration/ # 跨层兼容性
+
 docs/            # 数学定义、架构决策与实验记录
 ```
 

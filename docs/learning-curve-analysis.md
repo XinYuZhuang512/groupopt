@@ -9,7 +9,7 @@
   阶梯曲线，再对五个 seed 求均值；
 - 等时间比较只使用三种模式都覆盖的公共时间区间。
 
-分析数据由 `experiments/analyze_learning_curves.py` 生成。
+分析数据由 `experiments/analysis/analyze_learning_curves.py` 生成。
 
 ## Attention Model
 

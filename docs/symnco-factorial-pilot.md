@@ -93,7 +93,7 @@ On the GPU server:
 
 ```bash
 cd /root/autodl-tmp/groupopt
-screen -dmS symnco_factorial bash experiments/run_symnco_factorial_pilot_server.sh
+screen -dmS symnco_factorial bash experiments/pipelines/current/run_symnco_factorial_pilot_server.sh
 ```
 
 Progress and completion:

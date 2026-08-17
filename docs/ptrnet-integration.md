@@ -18,5 +18,5 @@ adaptive-base 框架能否从 Transformer 型 AM 迁移到 LSTM Pointer Network�
 - `adaptive`：tail pointer 从所有合法 tail 中选择基；
 - `adaptive_state`：tail pointer 额外接收路径起点、分量平均 embedding 和路径长度。
 
-首轮入口为 `experiments/run_ptrnet_pilot.sh`，依次运行三种模式的 TSP-50、
+首轮入口为 `experiments/pipelines/archive/run_ptrnet_pilot.sh`，依次运行三种模式的 TSP-50、
 seed 1234、2,000-step pilot。

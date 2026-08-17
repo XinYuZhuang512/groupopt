@@ -29,7 +29,7 @@
 最小训练链路可以用下面的命令检查：
 
 ```bash
-PYTHONPATH=src python3 experiments/train_am_smoke.py --steps 100
+PYTHONPATH=src python3 experiments/train/train_am_smoke.py --steps 100
 ```
 
 脚本默认自动使用 CUDA，也可以显式传入 `--device cpu` 或 `--device cuda`。最终记录同时包含峰值 GPU 显存。
@@ -59,6 +59,6 @@ PYTHONPATH=src python3 experiments/train_am_smoke.py --steps 100
   起点、成员节点平均表示和归一化路径长度，再进行 tail attention。这使基选择器
   能区分“同一个节点处于不同局部路径结构”时的状态。
 
-两种模式共用 encoder、head decoder、TSP 状态机、优化器和数据生成逻辑。实验入口为 `experiments/train_am_experiment.py`，会记录 JSONL 指标并原子写入 latest、best 和周期 checkpoint。训练数据和动作采样使用不同的随机数生成器，保证相同 seed 下两种模式每一步看到相同实例。
+两种模式共用 encoder、head decoder、TSP 状态机、优化器和数据生成逻辑。实验入口为 `experiments/train/train_am_experiment.py`，会记录 JSONL 指标并原子写入 latest、best 和周期 checkpoint。训练数据和动作采样使用不同的随机数生成器，保证相同 seed 下两种模式每一步看到相同实例。
 
-服务器 pilot 使用 `experiments/run_am_pilot.sh`，顺序执行 TSP-50 的固定基与自适应基各 2000 步。该 pilot 用于选择正式训练长度，不作为最终论文表格。
+服务器 pilot 使用 `experiments/pipelines/archive/run_am_pilot.sh`，顺序执行 TSP-50 的固定基与自适应基各 2000 步。该 pilot 用于选择正式训练长度，不作为最终论文表格。
