@@ -8,9 +8,9 @@ framework document, expressed without any neural-model dependency.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from math import fsum
-from typing import Sequence
 
 
 class InvalidAction(ValueError):

@@ -9,8 +9,9 @@ from typing import Literal
 import torch
 from torch import Tensor, nn
 
+from groupopt.framework.neural import BatchedConstructionProcess
 from groupopt.models.tail_gate import categorical_entropy
-from groupopt.problems.tsp_tensor import BatchedTSPState
+from groupopt.problems.tsp_tensor import BatchedTSPConstruction, BatchedTSPState
 
 DecodeType = Literal["greedy", "sampling"]
 
@@ -91,22 +92,26 @@ def decode_joint_actions(
     anchor: int,
     temperature: float,
     generator: torch.Generator | None,
+    construction_process: BatchedConstructionProcess[
+        Tensor, BatchedTSPState
+    ] | None = None,
 ) -> JointActionOutput:
     """Construct a tour with one categorical legal-edge action per step."""
     if base_mode not in ("joint_fixed", "joint_free"):
         raise ValueError(f"unsupported joint base mode: {base_mode}")
 
-    state = BatchedTSPState.initialize(coordinates)
+    process = construction_process or BatchedTSPConstruction()
+    state = process.initial_state(coordinates)
     tails: list[Tensor] = []
     heads: list[Tensor] = []
     selected_log_probabilities: list[Tensor] = []
     action_entropies: list[Tensor] = []
 
-    while not state.terminal:
+    while not process.is_terminal(state):
         fixed_tail = (
-            state.sequential_base(anchor) if base_mode == "joint_fixed" else None
+            process.fixed_base(state, anchor) if base_mode == "joint_fixed" else None
         )
-        mask = state.edge_action_mask(fixed_tail)
+        mask = process.action_mask(state, fixed_tail)
         action_log_p = scorer(
             coordinates,
             node_embeddings,
@@ -125,16 +130,16 @@ def decode_joint_actions(
         action_entropies.append(categorical_entropy(flat_log_p))
         tails.append(selected_tail)
         heads.append(selected_head)
-        state = state.update(selected_tail, selected_head)
+        state = process.transition(state, selected_tail, selected_head)
 
     tail_tensor = torch.stack(tails, dim=1)
     head_tensor = torch.stack(heads, dim=1)
     return JointActionOutput(
-        cost=state.edge_cost(tail_tensor, head_tensor),
+        cost=process.objective(state, tail_tensor, head_tensor),
         log_likelihood=torch.stack(selected_log_probabilities, dim=1).sum(dim=1),
         tails=tail_tensor,
         heads=head_tensor,
-        successor=state.successor,
+        successor=process.solution(state),
         action_entropy=torch.stack(action_entropies, dim=1).mean(dim=1),
     )
 

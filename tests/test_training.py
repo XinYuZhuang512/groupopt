@@ -6,7 +6,7 @@ from pathlib import Path
 import torch
 
 from experiments.train_am_experiment import _write_or_validate_config
-from groupopt.training import reinforce_loss
+from groupopt.objectives import reinforce_loss
 
 
 class TrainingUtilityTests(unittest.TestCase):

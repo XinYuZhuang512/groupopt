@@ -21,9 +21,7 @@ class AdaptiveAttentionModelTests(unittest.TestCase):
     def _assert_outputs_are_valid_tours(
         self, decode_type: str, base_mode: str = "adaptive"
     ) -> None:
-        output = self.model(
-            self.coordinates, decode_type=decode_type, base_mode=base_mode
-        )
+        output = self.model(self.coordinates, decode_type=decode_type, base_mode=base_mode)
         process = DirectedTSPConstruction()
 
         self.assertEqual(output.tails.shape, (4, 6))
@@ -63,11 +61,13 @@ class AdaptiveAttentionModelTests(unittest.TestCase):
                 "gated_adaptive_state",
                 "joint_fixed",
                 "joint_free",
+                "native_fixed",
+                "native_free",
+                "native_conditional_fixed",
+                "native_conditional_free",
             ):
                 with self.subTest(base_mode=base_mode):
-                    self._assert_outputs_are_valid_tours(
-                        "greedy", base_mode=base_mode
-                    )
+                    self._assert_outputs_are_valid_tours("greedy", base_mode=base_mode)
 
     def test_state_aware_tail_embeddings_change_after_path_merge(self) -> None:
         from groupopt.problems.tsp_tensor import BatchedTSPState
@@ -79,26 +79,16 @@ class AdaptiveAttentionModelTests(unittest.TestCase):
                 torch.zeros(4, dtype=torch.long),
                 torch.ones(4, dtype=torch.long),
             )
-            initial_embeddings = self.model._state_aware_tail_embeddings(
-                node_embeddings, initial
-            )
-            updated_embeddings = self.model._state_aware_tail_embeddings(
-                node_embeddings, updated
-            )
+            initial_embeddings = self.model._state_aware_tail_embeddings(node_embeddings, initial)
+            updated_embeddings = self.model._state_aware_tail_embeddings(node_embeddings, updated)
 
         self.assertFalse(torch.equal(initial_embeddings, updated_embeddings))
         state_delta = updated_embeddings - node_embeddings
-        self.assertTrue(
-            torch.allclose(
-                state_delta[:, 0], state_delta[:, 1], rtol=1e-5, atol=1e-6
-            )
-        )
+        self.assertTrue(torch.allclose(state_delta[:, 0], state_delta[:, 1], rtol=1e-5, atol=1e-6))
 
     def test_state_aware_selector_supports_backpropagation(self) -> None:
         self.model.train()
-        output = self.model(
-            self.coordinates, decode_type="sampling", base_mode="adaptive_state"
-        )
+        output = self.model(self.coordinates, decode_type="sampling", base_mode="adaptive_state")
         (-output.log_likelihood.mean()).backward()
 
         gradient = self.model.project_tail_state.weight.grad
@@ -121,8 +111,8 @@ class AdaptiveAttentionModelTests(unittest.TestCase):
         assert gradient is not None
         self.assertGreater(gradient.abs().sum().item(), 0.0)
         self.assertTrue(torch.isfinite(output.tail_entropy).all())
-        self.assertTrue(torch.all((output.gate_probability > 0.0)))
-        self.assertTrue(torch.all((output.gate_probability < 0.5)))
+        self.assertTrue(torch.all(output.gate_probability > 0.0))
+        self.assertTrue(torch.all(output.gate_probability < 0.5))
 
     def test_joint_free_backpropagates_through_pair_scorer(self) -> None:
         self.model.train()
@@ -149,12 +139,67 @@ class AdaptiveAttentionModelTests(unittest.TestCase):
         self.assertTrue(torch.equal(output.tails[:, 0], torch.zeros(4, dtype=torch.long)))
         self.assertTrue(torch.equal(output.tails[:, 1:], output.heads[:, :-1]))
 
+    def test_native_fixed_exactly_reproduces_native_fixed_decoder(self) -> None:
+        self.model.eval()
+        with torch.no_grad():
+            original = self.model(self.coordinates, decode_type="greedy", base_mode="fixed")
+            lifted = self.model(self.coordinates, decode_type="greedy", base_mode="native_fixed")
+
+        self.assertTrue(torch.equal(original.tails, lifted.tails))
+        self.assertTrue(torch.equal(original.heads, lifted.heads))
+        self.assertTrue(torch.equal(original.successor, lifted.successor))
+        self.assertTrue(torch.allclose(original.cost, lifted.cost))
+        self.assertTrue(
+            torch.allclose(original.log_likelihood, lifted.log_likelihood, rtol=1e-5, atol=1e-6)
+        )
+
+    def test_native_free_uses_tail_state_and_native_head_decoder(self) -> None:
+        self.model.train()
+        output = self.model(self.coordinates, decode_type="sampling", base_mode="native_free")
+        (-output.log_likelihood.mean()).backward()
+
+        for parameter in (
+            self.model.project_tail_state.weight,
+            self.model.project_head_context.weight,
+            self.model.project_head_glimpse.weight,
+        ):
+            self.assertIsNotNone(parameter.grad)
+            assert parameter.grad is not None
+            self.assertTrue(torch.isfinite(parameter.grad).all())
+            self.assertGreater(parameter.grad.abs().sum().item(), 0.0)
+        self.assertTrue(torch.isfinite(output.tail_entropy).all())
+        self.assertTrue(torch.isfinite(output.action_entropy).all())
+
+    def test_native_conditional_modes_preserve_fixed_and_train_tail_summary(self) -> None:
+        self.model.eval()
+        with torch.no_grad():
+            original = self.model(self.coordinates, decode_type="greedy", base_mode="fixed")
+            fixed = self.model(
+                self.coordinates,
+                decode_type="greedy",
+                base_mode="native_conditional_fixed",
+            )
+        self.assertTrue(torch.equal(original.tails, fixed.tails))
+        self.assertTrue(torch.equal(original.heads, fixed.heads))
+        self.assertTrue(torch.allclose(original.log_likelihood, fixed.log_likelihood))
+
+        self.model.train()
+        free = self.model(
+            self.coordinates,
+            decode_type="sampling",
+            base_mode="native_conditional_free",
+        )
+        (-free.log_likelihood.mean()).backward()
+        gradient = self.model.project_native_head_summary.weight.grad
+        self.assertIsNotNone(gradient)
+        assert gradient is not None
+        self.assertGreater(gradient.abs().sum().item(), 0.0)
+        self.assertTrue(torch.isfinite(free.action_entropy).all())
+
     def test_fixed_base_forward_is_a_continuous_anchored_path(self) -> None:
         self.model.eval()
         with torch.no_grad():
-            output = self.model(
-                self.coordinates, decode_type="sampling", base_mode="fixed"
-            )
+            output = self.model(self.coordinates, decode_type="sampling", base_mode="fixed")
 
         self.assertTrue(torch.equal(output.tails[:, 0], torch.zeros(4, dtype=torch.long)))
         self.assertTrue(torch.equal(output.tails[:, 1:], output.heads[:, :-1]))
@@ -167,9 +212,7 @@ class AdaptiveAttentionModelTests(unittest.TestCase):
         loss.backward()
 
         gradients = [
-            parameter.grad
-            for parameter in self.model.parameters()
-            if parameter.grad is not None
+            parameter.grad for parameter in self.model.parameters() if parameter.grad is not None
         ]
         self.assertTrue(gradients)
         self.assertTrue(all(torch.isfinite(gradient).all() for gradient in gradients))

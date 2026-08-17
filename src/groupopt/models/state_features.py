@@ -18,7 +18,18 @@ ADAPTIVE_BASE_MODES = (
 )
 FEATURE_BASE_MODES = ADAPTIVE_BASE_MODES[1:]
 JOINT_BASE_MODES = ("joint_fixed", "joint_free")
-BASE_MODES = ("fixed", *ADAPTIVE_BASE_MODES, *JOINT_BASE_MODES)
+NATIVE_BASE_MODES = ("native_fixed", "native_free")
+NATIVE_CONDITIONAL_BASE_MODES = (
+    "native_conditional_fixed",
+    "native_conditional_free",
+)
+BASE_MODES = (
+    "fixed",
+    *ADAPTIVE_BASE_MODES,
+    *JOINT_BASE_MODES,
+    *NATIVE_BASE_MODES,
+    *NATIVE_CONDITIONAL_BASE_MODES,
+)
 
 
 def select_tail_state_features(

@@ -209,3 +209,54 @@ class BatchedTSPState:
             raise ValueError(f"{name} must be a long tensor with shape (batch,)")
         if ((action < 0) | (action >= self.n)).any():
             raise ValueError(f"{name} contains an out-of-range vertex")
+
+
+class BatchedTSPConstruction:
+    """Tensorized TSP problem plugin for :class:`BatchedConstructionProcess`.
+
+    This stateless adapter is the sole owner of TSP feasibility, transition,
+    fixed-base and objective semantics exposed to neural model adapters.
+    """
+
+    def initial_state(self, instance: Tensor) -> BatchedTSPState:
+        return BatchedTSPState.initialize(instance)
+
+    def is_terminal(self, state: BatchedTSPState) -> bool:
+        return state.terminal
+
+    def base_mask(self, state: BatchedTSPState) -> Tensor:
+        return state.tail_mask()
+
+    def representative_mask(
+        self, state: BatchedTSPState, selected_base: Tensor
+    ) -> Tensor:
+        return state.head_mask(selected_base)
+
+    def action_mask(
+        self, state: BatchedTSPState, fixed_base: Tensor | None = None
+    ) -> Tensor:
+        return state.edge_action_mask(fixed_base)
+
+    def fixed_base(self, state: BatchedTSPState, anchor: int = 0) -> Tensor:
+        return state.sequential_base(anchor)
+
+    def transition(
+        self,
+        state: BatchedTSPState,
+        selected_base: Tensor,
+        selected_representative: Tensor,
+    ) -> BatchedTSPState:
+        return state.update(selected_base, selected_representative)
+
+    def objective(
+        self,
+        state: BatchedTSPState,
+        selected_bases: Tensor,
+        selected_representatives: Tensor,
+    ) -> Tensor:
+        return state.edge_cost(selected_bases, selected_representatives)
+
+    def solution(self, state: BatchedTSPState) -> Tensor:
+        if not state.terminal:
+            raise ValueError("cannot decode a nonterminal batched TSP state")
+        return state.successor

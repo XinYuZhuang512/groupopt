@@ -1,5 +1,12 @@
 """Problem-specific construction processes."""
 
-from groupopt.problems.tsp import DirectedTSPConstruction, DirectedTour, TSPState
+from groupopt.problems.tsp import DirectedTour, DirectedTSPConstruction, TSPState
+from groupopt.problems.tsp_tensor import BatchedTSPConstruction, BatchedTSPState
 
-__all__ = ["DirectedTSPConstruction", "DirectedTour", "TSPState"]
+__all__ = [
+    "BatchedTSPConstruction",
+    "BatchedTSPState",
+    "DirectedTSPConstruction",
+    "DirectedTour",
+    "TSPState",
+]

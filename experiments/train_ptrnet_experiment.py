@@ -5,10 +5,9 @@ from __future__ import annotations
 import argparse
 
 from torch import nn
+from train_am_experiment import parse_args, run
 
 from groupopt.models.ptrnet import AdaptivePointerNetwork
-
-from train_am_experiment import parse_args, run
 
 
 def build_ptrnet(args: argparse.Namespace) -> nn.Module:

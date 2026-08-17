@@ -1,13 +1,5 @@
-"""Training utilities shared by model adapters."""
+"""Backward-compatible training import; use :mod:`groupopt.objectives`."""
 
-from __future__ import annotations
+from groupopt.objectives import reinforce_loss
 
-from torch import Tensor
-
-
-def reinforce_loss(cost: Tensor, log_likelihood: Tensor) -> Tensor:
-    """Return a batch-mean REINFORCE objective with a centered batch baseline."""
-    if cost.ndim != 1 or log_likelihood.shape != cost.shape:
-        raise ValueError("cost and log_likelihood must be vectors with equal shape")
-    advantage = (cost - cost.mean()).detach()
-    return (advantage * log_likelihood).mean()
+__all__ = ["reinforce_loss"]

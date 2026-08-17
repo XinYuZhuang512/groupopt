@@ -6,9 +6,9 @@ import argparse
 import json
 import os
 import statistics
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
-
 
 SEEDS = (1234, 2345, 3456, 4567, 5678)
 MODES = ("fixed", "adaptive", "adaptive_state")
@@ -50,7 +50,7 @@ def value_at_time(
 
 def transitions(points: list[dict[str, float]], field: str) -> list[dict[str, float]]:
     crossings: list[dict[str, float]] = []
-    for previous, current in zip(points, points[1:]):
+    for previous, current in pairwise(points):
         if (previous["state_minus_fixed"] <= 0) != (current["state_minus_fixed"] <= 0):
             crossings.append(
                 {
@@ -75,7 +75,7 @@ def aggregate_family(formal_dir: Path, prefix: str) -> dict[str, Any]:
     common_steps = sorted(
         set.intersection(
             *(
-                set(int(point["step"]) for point in curve)
+                {int(point["step"]) for point in curve}
                 for mode in MODES
                 for curve in curves[mode]
             )

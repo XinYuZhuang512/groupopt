@@ -6,6 +6,7 @@ import torch
 
 from experiments.evaluate_checkpoint import load_model
 from groupopt.models.am import AdaptiveAttentionModel
+from groupopt.models.encoder_controls import JointEncoderModel, ModernNativeAttentionModel
 from groupopt.models.gpn import AdaptiveGraphPointerNetwork
 from groupopt.models.ptrnet import AdaptivePointerNetwork
 
@@ -77,6 +78,54 @@ class CheckpointEvaluationModelBuilderTests(unittest.TestCase):
             loaded, _ = load_model(checkpoint, config, torch.device("cpu"))
 
         self.assertIsInstance(loaded, AdaptiveGraphPointerNetwork)
+
+    def test_encoder_control_checkpoints_load(self) -> None:
+        configurations = (
+            ("gat", JointEncoderModel("gat", 16, 1, 4)),
+            ("gru", JointEncoderModel("gru", 16, 1, 4)),
+            ("pointerformer", JointEncoderModel("pointerformer", 16, 1, 4)),
+            ("geometric", JointEncoderModel("geometric", 16, 1, 4)),
+            (
+                "moe_transformer",
+                JointEncoderModel("moe_transformer", 16, 1, 4),
+            ),
+        )
+        for model_name, model in configurations:
+            config = {
+                "base_mode": "joint_free",
+                "embedding_dim": 16,
+                "encoder_layers": 1,
+                "heads": 4,
+                "model": model_name,
+            }
+            with self.subTest(model=model_name), tempfile.TemporaryDirectory() as directory:
+                checkpoint = Path(directory) / "checkpoint.pt"
+                torch.save({"model": model.state_dict()}, checkpoint)
+                loaded, _ = load_model(checkpoint, config, torch.device("cpu"))
+            self.assertIsInstance(loaded, JointEncoderModel)
+
+    def test_modern_native_checkpoints_load(self) -> None:
+        for model_name in (
+            "reversible_transformer",
+            "geometric_transformer",
+            "sparse_moe_transformer",
+        ):
+            model = ModernNativeAttentionModel(
+                model_name, embedding_dim=16, n_encoder_layers=1, n_heads=4
+            )
+            config = {
+                "base_mode": "native_conditional_free",
+                "embedding_dim": 16,
+                "encoder_layers": 1,
+                "feed_forward_dim": 512,
+                "heads": 4,
+                "model": model_name,
+            }
+            with self.subTest(model=model_name), tempfile.TemporaryDirectory() as directory:
+                checkpoint = Path(directory) / "checkpoint.pt"
+                torch.save({"model": model.state_dict()}, checkpoint)
+                loaded, _ = load_model(checkpoint, config, torch.device("cpu"))
+            self.assertIsInstance(loaded, ModernNativeAttentionModel)
 
 
 if __name__ == "__main__":

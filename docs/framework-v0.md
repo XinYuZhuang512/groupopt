@@ -80,22 +80,27 @@ M_I(s_t,b_t,r_t)\in\{0,1\}
 
 ## 5. 模型接口
 
-模型只能访问实例表示、当前状态摘要和候选集合，并返回 logits：
+模型只能访问实例表示、当前状态摘要和候选集合。代码层的稳定接入接口为：
 
 ```python
 class ConstructionModel:
-    def encode(self, instance): ...
-
-    def score_bases(self, encoding, state, candidates): ...
-
-    def score_representatives(
-        self, encoding, state, selected_base, candidates
-    ): ...
+    def forward(
+        self,
+        instance,
+        decode_type="sampling",
+        base_mode="native_conditional_free",
+        anchor=0,
+        temperature=1.0,
+        generator=None,
+    ) -> ConstructionOutput: ...
 ```
 
-固定基方式不调用 `score_bases`。框架统一完成 softmax、遮罩、动作选择、状态转移和解码。
+模型内部可以保留原生 encoder/decoder，并在其内部实现 base/tail 评分；合法 mask、固定基、
+状态转移、目标函数和最终解必须通过 `BatchedConstructionProcess` 问题插件取得。固定基方式
+不启用可学习的 base 选择。
 
-跨模型的操作性判据是：替换 `ConstructionModel` 的实现时，不修改问题状态、合法动作、转移函数和解码函数。
+跨模型的操作性判据是：替换 `ConstructionModel` 的实现或在 `ModelRegistry` 中注册新方法
+时，不修改框架包、问题状态、合法动作、转移函数和解码函数。
 
 ## 6. 第一个实例：TSP 的自适应基构造
 

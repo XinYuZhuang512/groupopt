@@ -15,7 +15,12 @@ from torch import nn
 
 from groupopt.models.am import AdaptiveAttentionModel
 from groupopt.models.state_features import BASE_MODES
-from groupopt.training import reinforce_loss
+from groupopt.objectives import (
+    SymmetryProjectionHead,
+    augment_euclidean_symmetries,
+    reinforce_loss,
+    symnco_am_loss,
+)
 
 
 def evaluate(
@@ -59,11 +64,17 @@ def run(
         torch.cuda.reset_peak_memory_stats(device)
 
     model = model_builder(args).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+    symmetry_projection_head: nn.Module | None = None
+    optimizer_parameters = list(model.parameters())
+    if args.training_scheme == "symnco_am":
+        symmetry_projection_head = SymmetryProjectionHead(args.embedding_dim).to(device)
+        optimizer_parameters.extend(symmetry_projection_head.parameters())
+    optimizer = torch.optim.Adam(optimizer_parameters, lr=args.learning_rate)
 
     data_generator = torch.Generator(device=device).manual_seed(args.seed + 1)
     validation_generator = torch.Generator(device=device).manual_seed(args.seed + 2)
     action_generator = torch.Generator(device=device).manual_seed(args.seed + 3)
+    symmetry_generator = torch.Generator(device=device).manual_seed(args.seed + 4)
     validation = torch.rand(
         args.validation_size,
         args.graph_size,
@@ -77,11 +88,17 @@ def run(
     if args.resume is not None:
         checkpoint = torch.load(args.resume, map_location=device, weights_only=False)
         model.load_state_dict(checkpoint["model"])
+        if symmetry_projection_head is not None:
+            if "symmetry_projection_head" not in checkpoint:
+                raise RuntimeError("SYM-NCO checkpoint is missing its projection head")
+            symmetry_projection_head.load_state_dict(checkpoint["symmetry_projection_head"])
         optimizer.load_state_dict(checkpoint["optimizer"])
         start_step = int(checkpoint["step"])
         best_cost = float(checkpoint["best_cost"])
         data_generator.set_state(checkpoint["data_generator_state"].cpu())
         action_generator.set_state(checkpoint["action_generator_state"].cpu())
+        if "symmetry_generator_state" in checkpoint:
+            symmetry_generator.set_state(checkpoint["symmetry_generator_state"].cpu())
 
     metrics_path = output_dir / "metrics.jsonl"
     started_at = time.monotonic()
@@ -104,6 +121,8 @@ def run(
             config,
             data_generator,
             action_generator,
+            symmetry_generator,
+            symmetry_projection_head,
         )
         _atomic_torch_save(initial_payload, checkpoint_dir / "best.pt")
         print(f"step=000000 val_greedy_cost={initial_cost:.6f}", flush=True)
@@ -118,13 +137,44 @@ def run(
                 device=device,
                 generator=data_generator,
             )
+            if args.training_scheme == "symnco_am":
+                model_coordinates = augment_euclidean_symmetries(
+                    coordinates,
+                    args.symmetry_factor,
+                    symmetry_generator,
+                )
+            else:
+                model_coordinates = coordinates
+            forward_options: dict[str, Any] = {}
+            if args.training_scheme == "symnco_am":
+                forward_options["return_symmetry_embeddings"] = True
             output = model(
-                coordinates,
+                model_coordinates,
                 decode_type="sampling",
                 base_mode=args.base_mode,
                 generator=action_generator,
+                **forward_options,
             )
-            loss = reinforce_loss(output.cost, output.log_likelihood)
+            symmetry_terms = None
+            if args.training_scheme == "symnco_am":
+                if output.symmetry_node_embeddings is None:
+                    raise RuntimeError("AM did not return projected embeddings for SYM-NCO")
+                assert symmetry_projection_head is not None
+                projected_embeddings = symmetry_projection_head(
+                    output.symmetry_node_embeddings
+                )
+                symmetry_terms = symnco_am_loss(
+                    output.cost,
+                    output.log_likelihood,
+                    projected_embeddings,
+                    args.symmetry_factor,
+                    args.symmetry_alpha,
+                )
+                loss = symmetry_terms.total
+                policy_loss = symmetry_terms.policy
+            else:
+                loss = reinforce_loss(output.cost, output.log_likelihood)
+                policy_loss = loss
 
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
@@ -144,7 +194,9 @@ def run(
                 metric = {
                     "step": step,
                     "train_cost": output.cost.mean().item(),
-                    "reinforce_loss": loss.item(),
+                    "loss": loss.item(),
+                    "reinforce_loss": policy_loss.item(),
+                    "policy_loss": policy_loss.item(),
                     "gradient_norm": float(gradient_norm),
                     "validation_greedy_cost": validation_cost,
                     "best_validation_greedy_cost": best_cost,
@@ -153,17 +205,31 @@ def run(
                     "tail_entropy": output.tail_entropy.mean().item(),
                     "gate_probability": output.gate_probability.mean().item(),
                     "action_entropy": output.action_entropy.mean().item(),
+                    "effective_batch_size": int(output.cost.shape[0]),
                 }
+                if symmetry_terms is not None:
+                    metric.update(
+                        {
+                            "symmetry_similarity": symmetry_terms.similarity.item(),
+                            "invariance_penalty": symmetry_terms.invariance_penalty.item(),
+                        }
+                    )
                 _append_metric(metrics_path, metric)
+                symmetry_log = (
+                    f"symmetry_similarity={metric['symmetry_similarity']:.4f} "
+                    if symmetry_terms is not None
+                    else ""
+                )
                 print(
                     f"step={step:06d} "
                     f"train_cost={metric['train_cost']:.6f} "
-                    f"loss={metric['reinforce_loss']:.6f} "
+                    f"loss={metric['loss']:.6f} "
                     f"val_greedy_cost={validation_cost:.6f} "
                     f"best={best_cost:.6f} "
                     f"tail_entropy={metric['tail_entropy']:.4f} "
                     f"gate={metric['gate_probability']:.4f} "
                     f"action_entropy={metric['action_entropy']:.4f} "
+                    f"{symmetry_log}"
                     f"peak_gb={metric['peak_gpu_memory_gb']:.3f}",
                     flush=True,
                 )
@@ -177,6 +243,8 @@ def run(
                         config,
                         data_generator,
                         action_generator,
+                        symmetry_generator,
+                        symmetry_projection_head,
                     )
                     _atomic_torch_save(best_payload, checkpoint_dir / "best.pt")
 
@@ -192,6 +260,8 @@ def run(
                     config,
                     data_generator,
                     action_generator,
+                    symmetry_generator,
+                    symmetry_projection_head,
                 )
                 _atomic_torch_save(payload, checkpoint_dir / "latest.pt")
                 _atomic_torch_save(
@@ -206,6 +276,8 @@ def run(
             config,
             data_generator,
             action_generator,
+            symmetry_generator,
+            symmetry_projection_head,
         )
         _atomic_torch_save(payload, checkpoint_dir / "interrupted.pt")
         _atomic_torch_save(payload, checkpoint_dir / "latest.pt")
@@ -220,8 +292,10 @@ def _checkpoint_payload(
     config: dict[str, Any],
     data_generator: torch.Generator,
     action_generator: torch.Generator,
+    symmetry_generator: torch.Generator,
+    symmetry_projection_head: nn.Module | None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "model": model.state_dict(),
         "optimizer": optimizer.state_dict(),
         "step": step,
@@ -229,7 +303,11 @@ def _checkpoint_payload(
         "config": config,
         "data_generator_state": data_generator.get_state(),
         "action_generator_state": action_generator.get_state(),
+        "symmetry_generator_state": symmetry_generator.get_state(),
     }
+    if symmetry_projection_head is not None:
+        payload["symmetry_projection_head"] = symmetry_projection_head.state_dict()
+    return payload
 
 
 def _atomic_torch_save(payload: dict[str, Any], path: Path) -> None:
@@ -273,6 +351,16 @@ def _experiment_config(args: argparse.Namespace, device: torch.device) -> dict[s
     excluded = {"resume", "output_dir"}
     config = {key: value for key, value in vars(args).items() if key not in excluded}
     config["device"] = str(device)
+    if args.training_scheme == "symnco_am":
+        config["effective_batch_size"] = int(args.batch_size) * int(
+            args.symmetry_factor
+        )
+    else:
+        # Preserve the historical config schema so interrupted standard runs
+        # remain resumable after symmetry training support was added.
+        config.pop("training_scheme", None)
+        config.pop("symmetry_factor", None)
+        config.pop("symmetry_alpha", None)
     return config
 
 
@@ -304,6 +392,12 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("sizes and step intervals must be positive")
     if args.base_mode not in BASE_MODES:
         raise ValueError(f"base_mode must be one of {BASE_MODES}")
+    if args.training_scheme == "symnco_am" and args.symmetry_factor < 2:
+        raise ValueError("symnco_am requires --symmetry-factor of at least two")
+    if args.training_scheme == "symnco_am" and getattr(args, "model", "am") != "am":
+        raise ValueError("symnco_am is currently implemented only for the AM comparison")
+    if args.symmetry_alpha < 0:
+        raise ValueError("symmetry alpha must be non-negative")
 
 
 def parse_args() -> argparse.Namespace:
@@ -318,6 +412,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--graph-size", type=int, default=50)
     parser.add_argument("--steps", type=int, default=2000)
     parser.add_argument("--batch-size", type=int, default=512)
+    parser.add_argument(
+        "--training-scheme",
+        choices=("reinforce", "symnco_am"),
+        default="reinforce",
+    )
+    parser.add_argument("--symmetry-factor", type=int, default=4)
+    parser.add_argument("--symmetry-alpha", type=float, default=0.1)
     parser.add_argument("--validation-size", type=int, default=1024)
     parser.add_argument("--embedding-dim", type=int, default=128)
     parser.add_argument("--heads", type=int, default=8)

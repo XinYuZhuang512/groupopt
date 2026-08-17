@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass
 import torch
 
 from groupopt.models.am import AdaptiveAttentionModel
-from groupopt.training import reinforce_loss
+from groupopt.objectives import reinforce_loss
 
 
 @dataclass(frozen=True, slots=True)

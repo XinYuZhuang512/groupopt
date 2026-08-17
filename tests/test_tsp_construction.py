@@ -1,5 +1,5 @@
 import unittest
-from itertools import permutations
+from itertools import pairwise, permutations
 
 from groupopt.problems.tsp import (
     DirectedTSPConstruction,
@@ -12,7 +12,7 @@ from groupopt.problems.tsp import (
 def _construct_cycle(order: tuple[int, ...]):
     process = DirectedTSPConstruction()
     state = process.initial_state(len(order))
-    for source, target in zip(order, order[1:]):
+    for source, target in pairwise(order):
         state = process.transition(state, source, target)
     state = process.transition(state, order[-1], order[0])
     return process, state

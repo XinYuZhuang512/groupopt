@@ -7,14 +7,20 @@ legal head (representative). Feasibility is entirely supplied by ``BatchedTSPSta
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import replace
 from math import sqrt
 from typing import Literal
 
 import torch
 from torch import Tensor, nn
 
+from groupopt.framework.neural import BatchedConstructionProcess, ConstructionOutput
 from groupopt.models.joint_action import PairActionScorer, decode_joint_actions
+from groupopt.models.native_conditional import (
+    joint_action_entropy,
+    masked_conditional_log_probabilities,
+    native_head_summary,
+)
 from groupopt.models.state_features import (
     ADAPTIVE_BASE_MODES,
     BASE_MODES,
@@ -27,7 +33,7 @@ from groupopt.models.tail_gate import (
     categorical_entropy,
     mix_with_fixed_tail,
 )
-from groupopt.problems.tsp_tensor import BatchedTSPState
+from groupopt.problems.tsp_tensor import BatchedTSPConstruction, BatchedTSPState
 
 DecodeType = Literal["greedy", "sampling"]
 BaseMode = Literal[
@@ -40,20 +46,15 @@ BaseMode = Literal[
     "gated_adaptive_state",
     "joint_fixed",
     "joint_free",
+    "native_fixed",
+    "native_free",
+    "native_conditional_fixed",
+    "native_conditional_free",
     "fixed",
 ]
 
 
-@dataclass(frozen=True, slots=True)
-class AttentionModelOutput:
-    cost: Tensor
-    log_likelihood: Tensor
-    tails: Tensor
-    heads: Tensor
-    successor: Tensor
-    tail_entropy: Tensor
-    gate_probability: Tensor
-    action_entropy: Tensor
+AttentionModelOutput = ConstructionOutput
 
 
 class _Normalization(nn.Module):
@@ -84,9 +85,7 @@ class _EncoderLayer(nn.Module):
         normalization: Literal["batch", "layer"],
     ) -> None:
         super().__init__()
-        self.attention = nn.MultiheadAttention(
-            embedding_dim, n_heads, batch_first=True, bias=True
-        )
+        self.attention = nn.MultiheadAttention(embedding_dim, n_heads, batch_first=True, bias=True)
         self.attention_norm = _Normalization(embedding_dim, normalization)
         self.feed_forward = nn.Sequential(
             nn.Linear(embedding_dim, feed_forward_dim),
@@ -140,6 +139,9 @@ class AdaptiveAttentionModel(nn.Module):
         feed_forward_dim: int = 512,
         tanh_clipping: float = 10.0,
         normalization: Literal["batch", "layer"] = "batch",
+        construction_process: BatchedConstructionProcess[
+            Tensor, BatchedTSPState
+        ] | None = None,
     ) -> None:
         super().__init__()
         if embedding_dim % n_heads != 0:
@@ -148,6 +150,7 @@ class AdaptiveAttentionModel(nn.Module):
         self.embedding_dim = embedding_dim
         self.n_heads = n_heads
         self.tanh_clipping = tanh_clipping
+        self.construction_process = construction_process or BatchedTSPConstruction()
         self.encoder = _GraphAttentionEncoder(
             embedding_dim,
             n_heads,
@@ -162,12 +165,9 @@ class AdaptiveAttentionModel(nn.Module):
         self.project_head_context = nn.Linear(2 * embedding_dim, embedding_dim, bias=False)
         self.project_tail_glimpse = nn.Linear(embedding_dim, embedding_dim, bias=False)
         self.project_head_glimpse = nn.Linear(embedding_dim, embedding_dim, bias=False)
-        self.project_tail_state = nn.Linear(
-            2 * embedding_dim + 1, embedding_dim, bias=False
-        )
-        self.project_state_tail_nodes = nn.Linear(
-            embedding_dim, 3 * embedding_dim, bias=False
-        )
+        self.project_tail_state = nn.Linear(2 * embedding_dim + 1, embedding_dim, bias=False)
+        self.project_state_tail_nodes = nn.Linear(embedding_dim, 3 * embedding_dim, bias=False)
+        self.project_native_head_summary = nn.Linear(3, embedding_dim, bias=False)
         self.tail_gate = StateAwareTailGate(embedding_dim)
         self.joint_action_scorer = PairActionScorer(embedding_dim, tanh_clipping)
         self.first_step_context = nn.Parameter(torch.empty(embedding_dim))
@@ -181,6 +181,7 @@ class AdaptiveAttentionModel(nn.Module):
         anchor: int = 0,
         temperature: float = 1.0,
         generator: torch.Generator | None = None,
+        return_symmetry_embeddings: bool = False,
     ) -> AttentionModelOutput:
         if temperature <= 0:
             raise ValueError("temperature must be positive")
@@ -198,9 +199,10 @@ class AdaptiveAttentionModel(nn.Module):
                 anchor,
                 temperature,
                 generator,
+                self.construction_process,
             )
             zeros = torch.zeros_like(joint.cost)
-            return AttentionModelOutput(
+            output = AttentionModelOutput(
                 cost=joint.cost,
                 log_likelihood=joint.log_likelihood,
                 tails=joint.tails,
@@ -210,7 +212,43 @@ class AdaptiveAttentionModel(nn.Module):
                 gate_probability=zeros,
                 action_entropy=joint.action_entropy,
             )
-        state = BatchedTSPState.initialize(coordinates)
+            return self._with_symmetry_embeddings(
+                output, node_embeddings, return_symmetry_embeddings
+            )
+        if base_mode == "native_free":
+            output = self._decode_native_free(
+                coordinates,
+                node_embeddings,
+                graph_embedding,
+                decode_type,
+                anchor,
+                temperature,
+                generator,
+            )
+            return self._with_symmetry_embeddings(
+                output, node_embeddings, return_symmetry_embeddings
+            )
+        if base_mode == "native_conditional_free":
+            output = self._decode_native_conditional_free(
+                coordinates,
+                node_embeddings,
+                graph_embedding,
+                decode_type,
+                temperature,
+                generator,
+            )
+            return self._with_symmetry_embeddings(
+                output, node_embeddings, return_symmetry_embeddings
+            )
+        if base_mode == "native_fixed":
+            # With one legal tail its additive base score cancels exactly.  Use
+            # the original fixed decoder directly instead of materializing all
+            # conditional tail-head rows.
+            base_mode = "fixed"
+        if base_mode == "native_conditional_fixed":
+            base_mode = "fixed"
+        process = self.construction_process
+        state = process.initial_state(coordinates)
         graph_context = self.project_graph(graph_embedding)
         key, value, logit_key = self.project_nodes(node_embeddings).chunk(3, dim=-1)
         key = self._split_heads(key)
@@ -225,7 +263,7 @@ class AdaptiveAttentionModel(nn.Module):
         tail_entropies: list[Tensor] = []
         gate_probabilities: list[Tensor] = []
 
-        while not state.terminal:
+        while not process.is_terminal(state):
             if base_mode in ADAPTIVE_BASE_MODES:
                 tail_query = self.project_tail_context(
                     torch.cat((graph_context, last_head_embedding), dim=-1)
@@ -245,7 +283,7 @@ class AdaptiveAttentionModel(nn.Module):
                     tail_key,
                     tail_value,
                     tail_logit_key,
-                    state.tail_mask(),
+                    process.base_mask(state),
                     self.project_tail_glimpse,
                     temperature,
                 )
@@ -258,7 +296,7 @@ class AdaptiveAttentionModel(nn.Module):
                     gate_probability = self.tail_gate(state, node_embeddings)
                     tail_log_p = mix_with_fixed_tail(
                         tail_log_p,
-                        state.sequential_base(anchor),
+                        process.fixed_base(state, anchor),
                         gate_probability,
                     )
                 selected_tail = _select(tail_log_p, decode_type, generator)
@@ -268,7 +306,7 @@ class AdaptiveAttentionModel(nn.Module):
                 tail_entropies.append(categorical_entropy(tail_log_p))
                 gate_probabilities.append(gate_probability)
             else:
-                selected_tail = state.sequential_base(anchor)
+                selected_tail = process.fixed_base(state, anchor)
                 zeros = torch.zeros(
                     state.batch_size,
                     dtype=node_embeddings.dtype,
@@ -279,9 +317,7 @@ class AdaptiveAttentionModel(nn.Module):
 
             tail_embedding = node_embeddings.gather(
                 1,
-                selected_tail[:, None, None].expand(
-                    state.batch_size, 1, self.embedding_dim
-                ),
+                selected_tail[:, None, None].expand(state.batch_size, 1, self.embedding_dim),
             ).squeeze(1)
             head_query = self.project_head_context(
                 torch.cat((graph_context, tail_embedding), dim=-1)
@@ -291,7 +327,7 @@ class AdaptiveAttentionModel(nn.Module):
                 key,
                 value,
                 logit_key,
-                state.head_mask(selected_tail),
+                process.representative_mask(state, selected_tail),
                 self.project_head_glimpse,
                 temperature,
             )
@@ -302,23 +338,21 @@ class AdaptiveAttentionModel(nn.Module):
             )
             tails.append(selected_tail)
             heads.append(selected_head)
-            state = state.update(selected_tail, selected_head)
+            state = process.transition(state, selected_tail, selected_head)
             last_head_embedding = node_embeddings.gather(
                 1,
-                selected_head[:, None, None].expand(
-                    state.batch_size, 1, self.embedding_dim
-                ),
+                selected_head[:, None, None].expand(state.batch_size, 1, self.embedding_dim),
             ).squeeze(1)
 
         tail_tensor = torch.stack(tails, dim=1)
         head_tensor = torch.stack(heads, dim=1)
         log_likelihood = torch.stack(selected_log_probabilities, dim=1).sum(dim=1)
-        return AttentionModelOutput(
-            cost=state.edge_cost(tail_tensor, head_tensor),
+        output = AttentionModelOutput(
+            cost=process.objective(state, tail_tensor, head_tensor),
             log_likelihood=log_likelihood,
             tails=tail_tensor,
             heads=head_tensor,
-            successor=state.successor,
+            successor=process.solution(state),
             tail_entropy=torch.stack(tail_entropies, dim=1).mean(dim=1),
             gate_probability=torch.stack(gate_probabilities, dim=1).mean(dim=1),
             action_entropy=torch.zeros(
@@ -326,6 +360,228 @@ class AdaptiveAttentionModel(nn.Module):
                 dtype=node_embeddings.dtype,
                 device=node_embeddings.device,
             ),
+        )
+        return self._with_symmetry_embeddings(
+            output, node_embeddings, return_symmetry_embeddings
+        )
+
+    def _with_symmetry_embeddings(
+        self,
+        output: AttentionModelOutput,
+        node_embeddings: Tensor,
+        include: bool,
+    ) -> AttentionModelOutput:
+        if not include:
+            return output
+        return replace(output, symmetry_node_embeddings=node_embeddings)
+
+    def _decode_native_free(
+        self,
+        coordinates: Tensor,
+        node_embeddings: Tensor,
+        graph_embedding: Tensor,
+        decode_type: DecodeType,
+        anchor: int,
+        temperature: float,
+        generator: torch.Generator | None,
+    ) -> AttentionModelOutput:
+        """Lift the native AM head decoder to legal ``(tail, head)`` actions.
+
+        The original AM glimpse and compatibility projections score every head
+        conditional on every candidate tail.  A state-aware native AM tail score
+        is added before one softmax over legal pairs.  The parameter-matched
+        ``native_fixed`` control is exactly the original fixed-tail decoder,
+        because an additive score for its sole legal tail cancels in softmax.
+        """
+        process = self.construction_process
+        state = process.initial_state(coordinates)
+        graph_context = self.project_graph(graph_embedding)
+        key, value, logit_key = self.project_nodes(node_embeddings).chunk(3, dim=-1)
+        key = self._split_heads(key)
+        value = self._split_heads(value)
+        last_head_embedding = self.first_step_context.unsqueeze(0).expand(
+            state.batch_size, self.embedding_dim
+        )
+
+        tails: list[Tensor] = []
+        heads: list[Tensor] = []
+        selected_log_probabilities: list[Tensor] = []
+        tail_entropies: list[Tensor] = []
+        action_entropies: list[Tensor] = []
+
+        while not process.is_terminal(state):
+            state_tail_nodes = self._state_aware_tail_embeddings(
+                node_embeddings, state, "adaptive_state"
+            )
+            tail_key, tail_value, tail_logit_key = self.project_state_tail_nodes(
+                state_tail_nodes
+            ).chunk(3, dim=-1)
+            tail_query = self.project_tail_context(
+                torch.cat((graph_context, last_head_embedding), dim=-1)
+            )
+            tail_logits = self._attention_logits(
+                tail_query,
+                self._split_heads(tail_key),
+                self._split_heads(tail_value),
+                tail_logit_key,
+                process.base_mask(state),
+                self.project_tail_glimpse,
+            )
+
+            expanded_graph = graph_context.unsqueeze(1).expand(
+                state.batch_size, state.n, self.embedding_dim
+            )
+            head_queries = self.project_head_context(
+                torch.cat((expanded_graph, node_embeddings), dim=-1)
+            )
+            pair_mask = process.action_mask(state)
+            head_logits = self._attention_logits(
+                head_queries,
+                key,
+                value,
+                logit_key,
+                pair_mask,
+                self.project_head_glimpse,
+            )
+            pair_logits = tail_logits.unsqueeze(2) + head_logits
+            pair_logits = pair_logits.masked_fill(pair_mask, -torch.inf)
+            flat_log_p = torch.log_softmax(pair_logits.flatten(1) / temperature, dim=1)
+            action_log_p = flat_log_p.reshape_as(pair_logits)
+            selected_action = _select(flat_log_p, decode_type, generator)
+            selected_tail = torch.div(selected_action, state.n, rounding_mode="floor")
+            selected_head = selected_action.remainder(state.n)
+
+            selected_log_probabilities.append(
+                flat_log_p.gather(1, selected_action[:, None]).squeeze(1)
+            )
+            tail_log_p = torch.logsumexp(action_log_p, dim=2)
+            tail_entropies.append(categorical_entropy(tail_log_p))
+            action_entropies.append(categorical_entropy(flat_log_p))
+            tails.append(selected_tail)
+            heads.append(selected_head)
+            state = process.transition(state, selected_tail, selected_head)
+            last_head_embedding = node_embeddings.gather(
+                1,
+                selected_head[:, None, None].expand(state.batch_size, 1, self.embedding_dim),
+            ).squeeze(1)
+
+        tail_tensor = torch.stack(tails, dim=1)
+        head_tensor = torch.stack(heads, dim=1)
+        zeros = torch.zeros(
+            state.batch_size,
+            dtype=node_embeddings.dtype,
+            device=node_embeddings.device,
+        )
+        return AttentionModelOutput(
+            cost=process.objective(state, tail_tensor, head_tensor),
+            log_likelihood=torch.stack(selected_log_probabilities, dim=1).sum(dim=1),
+            tails=tail_tensor,
+            heads=head_tensor,
+            successor=process.solution(state),
+            tail_entropy=torch.stack(tail_entropies, dim=1).mean(dim=1),
+            gate_probability=zeros,
+            action_entropy=torch.stack(action_entropies, dim=1).mean(dim=1),
+        )
+
+    def _decode_native_conditional_free(
+        self,
+        coordinates: Tensor,
+        node_embeddings: Tensor,
+        graph_embedding: Tensor,
+        decode_type: DecodeType,
+        temperature: float,
+        generator: torch.Generator | None,
+    ) -> AttentionModelOutput:
+        """Select a tail without changing the native conditional head policy."""
+        process = self.construction_process
+        state = process.initial_state(coordinates)
+        graph_context = self.project_graph(graph_embedding)
+        key, value, logit_key = self.project_nodes(node_embeddings).chunk(3, dim=-1)
+        key = self._split_heads(key)
+        value = self._split_heads(value)
+        distances = torch.cdist(coordinates, coordinates)
+        last_head_embedding = self.first_step_context.unsqueeze(0).expand(
+            state.batch_size, self.embedding_dim
+        )
+        batch_index = torch.arange(state.batch_size, device=coordinates.device)
+
+        tails: list[Tensor] = []
+        heads: list[Tensor] = []
+        selected_log_probabilities: list[Tensor] = []
+        tail_entropies: list[Tensor] = []
+        action_entropies: list[Tensor] = []
+
+        while not process.is_terminal(state):
+            pair_mask = process.action_mask(state)
+            expanded_graph = graph_context.unsqueeze(1).expand(
+                state.batch_size, state.n, self.embedding_dim
+            )
+            head_queries = self.project_head_context(
+                torch.cat((expanded_graph, node_embeddings), dim=-1)
+            )
+            head_logits = self._attention_logits(
+                head_queries,
+                key,
+                value,
+                logit_key,
+                pair_mask,
+                self.project_head_glimpse,
+            )
+            head_log_p = masked_conditional_log_probabilities(head_logits, pair_mask, temperature)
+            summary = native_head_summary(head_log_p, distances).detach()
+
+            state_tail_nodes = self._state_aware_tail_embeddings(
+                node_embeddings, state, "adaptive_state"
+            ) + self.project_native_head_summary(summary)
+            tail_key, tail_value, tail_logit_key = self.project_state_tail_nodes(
+                state_tail_nodes
+            ).chunk(3, dim=-1)
+            tail_query = self.project_tail_context(
+                torch.cat((graph_context, last_head_embedding), dim=-1)
+            )
+            tail_logits = self._attention_logits(
+                tail_query,
+                self._split_heads(tail_key),
+                self._split_heads(tail_value),
+                tail_logit_key,
+                process.base_mask(state),
+                self.project_tail_glimpse,
+            )
+            tail_log_p = torch.log_softmax(tail_logits / temperature, dim=-1)
+            selected_tail = _select(tail_log_p, decode_type, generator)
+            selected_head_log_p = head_log_p[batch_index, selected_tail]
+            selected_head = _select(selected_head_log_p, decode_type, generator)
+
+            selected_log_probabilities.append(
+                tail_log_p.gather(1, selected_tail[:, None]).squeeze(1)
+                + selected_head_log_p.gather(1, selected_head[:, None]).squeeze(1)
+            )
+            tail_entropies.append(categorical_entropy(tail_log_p))
+            action_entropies.append(joint_action_entropy(tail_log_p, head_log_p))
+            tails.append(selected_tail)
+            heads.append(selected_head)
+            state = process.transition(state, selected_tail, selected_head)
+            last_head_embedding = node_embeddings.gather(
+                1,
+                selected_head[:, None, None].expand(state.batch_size, 1, self.embedding_dim),
+            ).squeeze(1)
+
+        tail_tensor = torch.stack(tails, dim=1)
+        head_tensor = torch.stack(heads, dim=1)
+        zeros = torch.zeros(
+            state.batch_size,
+            dtype=node_embeddings.dtype,
+            device=node_embeddings.device,
+        )
+        return AttentionModelOutput(
+            cost=process.objective(state, tail_tensor, head_tensor),
+            log_likelihood=torch.stack(selected_log_probabilities, dim=1).sum(dim=1),
+            tails=tail_tensor,
+            heads=head_tensor,
+            successor=process.solution(state),
+            tail_entropy=torch.stack(tail_entropies, dim=1).mean(dim=1),
+            gate_probability=zeros,
+            action_entropy=torch.stack(action_entropies, dim=1).mean(dim=1),
         )
 
     def _state_aware_tail_embeddings(
@@ -359,22 +615,46 @@ class AdaptiveAttentionModel(nn.Module):
         glimpse_projection: nn.Linear,
         temperature: float,
     ) -> Tensor:
-        batch = query.size(0)
+        logits = self._attention_logits(query, key, value, logit_key, mask, glimpse_projection)
+        return torch.log_softmax(logits / temperature, dim=-1)
+
+    def _attention_logits(
+        self,
+        query: Tensor,
+        key: Tensor,
+        value: Tensor,
+        logit_key: Tensor,
+        mask: Tensor,
+        glimpse_projection: nn.Linear,
+    ) -> Tensor:
+        """Return native AM logits for one or many conditional queries."""
+        squeeze_query = query.ndim == 2
+        if squeeze_query:
+            query = query.unsqueeze(1)
+            mask = mask.unsqueeze(1)
+        if query.ndim != 3 or mask.ndim != 3:
+            raise ValueError("query and mask must describe one or more queries")
+        batch, query_count, _ = query.shape
+        if mask.shape != (batch, query_count, logit_key.size(1)):
+            raise ValueError("attention mask has an incompatible shape")
+
         head_dim = self.embedding_dim // self.n_heads
-        head_query = query.reshape(batch, self.n_heads, 1, head_dim)
+        head_query = query.reshape(batch, query_count, self.n_heads, head_dim).permute(0, 2, 1, 3)
         compatibility = torch.matmul(head_query, key.transpose(-2, -1)) / sqrt(head_dim)
-        compatibility = compatibility.masked_fill(mask[:, None, None, :], -torch.inf)
+        fully_masked = mask.all(dim=-1, keepdim=True)
+        safe_mask = mask & ~fully_masked
+        compatibility = compatibility.masked_fill(safe_mask[:, None, :, :], -torch.inf)
         attention = torch.softmax(compatibility, dim=-1)
         glimpse = torch.matmul(attention, value)
-        glimpse = glimpse.transpose(1, 2).reshape(batch, 1, self.embedding_dim)
+        glimpse = glimpse.transpose(1, 2).reshape(batch, query_count, self.embedding_dim)
         glimpse = glimpse_projection(glimpse)
 
-        logits = torch.matmul(glimpse, logit_key.transpose(-2, -1)).squeeze(1)
+        logits = torch.matmul(glimpse, logit_key.transpose(-2, -1))
         logits = logits / sqrt(self.embedding_dim)
         if self.tanh_clipping > 0:
             logits = torch.tanh(logits) * self.tanh_clipping
         logits = logits.masked_fill(mask, -torch.inf)
-        return torch.log_softmax(logits / temperature, dim=-1)
+        return logits.squeeze(1) if squeeze_query else logits
 
 
 def _select(

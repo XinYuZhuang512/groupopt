@@ -12,30 +12,8 @@ from typing import Any
 import torch
 from torch import nn
 
-from groupopt.models.am import AdaptiveAttentionModel
-from groupopt.models.gpn import AdaptiveGraphPointerNetwork
-from groupopt.models.ptrnet import AdaptivePointerNetwork
-
-
-def build_model(config: dict[str, Any]) -> nn.Module:
-    model_name = config.get("model", "am")
-    if model_name == "ptrnet":
-        return AdaptivePointerNetwork(
-            embedding_dim=int(config["embedding_dim"]),
-            n_encoder_layers=int(config["encoder_layers"]),
-        )
-    if model_name == "gpn":
-        return AdaptiveGraphPointerNetwork(
-            embedding_dim=int(config["embedding_dim"]),
-            n_encoder_layers=int(config["encoder_layers"]),
-        )
-    return AdaptiveAttentionModel(
-        embedding_dim=int(config["embedding_dim"]),
-        n_heads=int(config["heads"]),
-        n_encoder_layers=int(config["encoder_layers"]),
-        feed_forward_dim=int(config["feed_forward_dim"]),
-        normalization=config["normalization"],
-    )
+from groupopt.adapters import build_model
+from groupopt.problems.distributions import TSP_DISTRIBUTIONS, generate_tsp_coordinates
 
 
 def load_model(
@@ -55,10 +33,13 @@ def load_model(
         )
     if config["base_mode"] not in ("joint_fixed", "joint_free"):
         allowed_missing.update(
-            key
-            for key in model.state_dict()
-            if key.startswith("joint_action_scorer.")
+            key for key in model.state_dict() if key.startswith("joint_action_scorer.")
         )
+    if config["base_mode"] not in (
+        "native_conditional_fixed",
+        "native_conditional_free",
+    ):
+        allowed_missing.add("project_native_head_summary.weight")
     if config.get("model", "am") == "am" and config["base_mode"] in (
         "fixed",
         "adaptive",
@@ -69,10 +50,7 @@ def load_model(
                 "project_state_tail_nodes.weight",
             }
         )
-    if (
-        not set(incompatible.missing_keys).issubset(allowed_missing)
-        or incompatible.unexpected_keys
-    ):
+    if not set(incompatible.missing_keys).issubset(allowed_missing) or incompatible.unexpected_keys:
         raise RuntimeError(
             "checkpoint/model mismatch: "
             f"missing={incompatible.missing_keys}, "
@@ -94,13 +72,11 @@ def evaluate(args: argparse.Namespace) -> None:
 
     device = resolve_device(args.device)
     model, checkpoint = load_model(checkpoint_path, config, device)
-    generator = torch.Generator(device="cpu").manual_seed(args.test_seed)
-    coordinates = torch.rand(
+    coordinates = generate_tsp_coordinates(
         args.test_size,
         args.graph_size,
-        2,
-        generator=generator,
-        device="cpu",
+        args.distribution,
+        args.test_seed,
     )
 
     costs: list[torch.Tensor] = []
@@ -123,6 +99,7 @@ def evaluate(args: argparse.Namespace) -> None:
         "best_validation_cost": float(checkpoint["best_cost"]),
         "checkpoint": str(checkpoint_path),
         "checkpoint_step": int(checkpoint["step"]),
+        "distribution": args.distribution,
         "graph_size": args.graph_size,
         "mean_cost": cost_tensor.mean().item(),
         "model": config.get("model", "am"),
@@ -131,6 +108,9 @@ def evaluate(args: argparse.Namespace) -> None:
         "test_seed": args.test_seed,
         "test_size": args.test_size,
         "train_seed": int(config["seed"]),
+        "training_scheme": config.get("training_scheme", "reinforce"),
+        "symmetry_factor": int(config.get("symmetry_factor", 1)),
+        "symmetry_alpha": float(config.get("symmetry_alpha", 0.0)),
     }
     atomic_torch_save(
         {
@@ -174,6 +154,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--test-size", type=int, default=10000)
     parser.add_argument("--test-seed", type=int, default=20260805)
+    parser.add_argument("--distribution", choices=TSP_DISTRIBUTIONS, default="uniform")
     parser.add_argument("--graph-size", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=512)
     parser.add_argument("--device", default="auto")
