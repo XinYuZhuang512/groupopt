@@ -8,6 +8,16 @@ import torch
 from torch import Tensor
 
 
+def categorical_entropy(log_probabilities: Tensor) -> Tensor:
+    """Return categorical entropy without producing ``0 * -inf``."""
+    terms = torch.where(
+        torch.isfinite(log_probabilities),
+        log_probabilities.exp() * log_probabilities,
+        torch.zeros_like(log_probabilities),
+    )
+    return -terms.sum(dim=-1)
+
+
 def masked_conditional_log_probabilities(
     logits: Tensor,
     mask: Tensor,

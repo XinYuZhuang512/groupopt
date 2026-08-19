@@ -7,10 +7,9 @@ from typing import Any
 
 from torch import nn
 
-from groupopt.models.am import AdaptiveAttentionModel
-from groupopt.models.encoder_controls import JointEncoderModel, ModernNativeAttentionModel
-from groupopt.models.gpn import AdaptiveGraphPointerNetwork
-from groupopt.models.ptrnet import AdaptivePointerNetwork
+from groupopt.models.am import AttentionModel
+from groupopt.models.gpn import GraphPointerNetwork
+from groupopt.models.ptrnet import PointerNetwork
 
 ModelBuilder = Callable[[Mapping[str, Any]], nn.Module]
 
@@ -43,7 +42,7 @@ class ModelRegistry:
 
 
 def _am(config: Mapping[str, Any]) -> nn.Module:
-    return AdaptiveAttentionModel(
+    return AttentionModel(
         embedding_dim=int(config["embedding_dim"]),
         n_heads=int(config["heads"]),
         n_encoder_layers=int(config["encoder_layers"]),
@@ -52,68 +51,24 @@ def _am(config: Mapping[str, Any]) -> nn.Module:
     )
 
 
-def _transformer_ln(config: Mapping[str, Any]) -> nn.Module:
-    return AdaptiveAttentionModel(
-        embedding_dim=int(config["embedding_dim"]),
-        n_heads=int(config["heads"]),
-        n_encoder_layers=int(config["encoder_layers"]),
-        feed_forward_dim=int(config["feed_forward_dim"]),
-        normalization="layer",
-    )
-
-
 def _ptrnet(config: Mapping[str, Any]) -> nn.Module:
-    return AdaptivePointerNetwork(
+    return PointerNetwork(
         embedding_dim=int(config["embedding_dim"]),
         n_encoder_layers=int(config["encoder_layers"]),
     )
 
 
 def _gpn(config: Mapping[str, Any]) -> nn.Module:
-    return AdaptiveGraphPointerNetwork(
+    return GraphPointerNetwork(
         embedding_dim=int(config["embedding_dim"]),
         n_encoder_layers=int(config["encoder_layers"]),
     )
 
 
-def _joint_encoder(model_name: str) -> ModelBuilder:
-    def builder(config: Mapping[str, Any]) -> nn.Module:
-        return JointEncoderModel(
-            encoder_type=model_name,
-            embedding_dim=int(config["embedding_dim"]),
-            n_encoder_layers=int(config["encoder_layers"]),
-            n_heads=int(config["heads"]),
-        )
-
-    return builder
-
-
-def _modern_native(model_name: str) -> ModelBuilder:
-    def builder(config: Mapping[str, Any]) -> nn.Module:
-        return ModernNativeAttentionModel(
-            model_name,
-            embedding_dim=int(config["embedding_dim"]),
-            n_encoder_layers=int(config["encoder_layers"]),
-            n_heads=int(config["heads"]),
-            feed_forward_dim=int(config["feed_forward_dim"]),
-        )
-
-    return builder
-
-
 model_registry = ModelRegistry()
 model_registry.register("am", _am)
-model_registry.register("transformer_ln", _transformer_ln)
 model_registry.register("ptrnet", _ptrnet)
 model_registry.register("gpn", _gpn)
-for _name in ("gat", "gru", "pointerformer", "geometric", "moe_transformer"):
-    model_registry.register(_name, _joint_encoder(_name))
-for _name in (
-    "reversible_transformer",
-    "geometric_transformer",
-    "sparse_moe_transformer",
-):
-    model_registry.register(_name, _modern_native(_name))
 
 
 def build_model(config: Mapping[str, Any]) -> nn.Module:
