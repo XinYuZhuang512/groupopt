@@ -1,4 +1,4 @@
-"""Validate the parameter-matched, held-out Original/Ours comparison."""
+"""验证参数匹配且使用留出数据的 Original/Ours 对比。"""
 
 from __future__ import annotations
 

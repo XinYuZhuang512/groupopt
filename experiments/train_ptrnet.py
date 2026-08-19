@@ -1,4 +1,4 @@
-"""Train an Original or GroupOpt Pointer Network experiment."""
+"""训练 Original 或 GroupOpt Pointer Network 实验。"""
 
 from __future__ import annotations
 

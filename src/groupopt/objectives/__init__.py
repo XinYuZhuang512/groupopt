@@ -1,4 +1,4 @@
-"""Training objectives kept separate from construction and model code."""
+"""与构造逻辑和模型代码分离的训练目标。"""
 
 from groupopt.objectives.reinforce import reinforce_loss
 from groupopt.objectives.symnco import (

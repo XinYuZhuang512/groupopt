@@ -1,8 +1,8 @@
-"""Attention Model integration for Original and GroupOpt TSP construction.
+"""用于 Original 与 GroupOpt TSP 构造的 Attention Model 接入实现。
 
-The encoder follows the graph self-attention pattern of Kool et al. The decoder uses
-two attention decisions per construction step: select a tail (base), then select a
-legal head (representative). Feasibility is entirely supplied by ``BatchedTSPState``.
+编码器遵循 Kool 等人的图 self-attention 结构。decoder 在每个构造步骤执行两次
+attention 决策：先选择 tail（base），再选择合法 head（代表元）。可行性完全由
+``BatchedTSPState`` 提供。
 """
 
 from __future__ import annotations
@@ -106,7 +106,7 @@ class _GraphAttentionEncoder(nn.Module):
 
 
 class AttentionModel(nn.Module):
-    """AM-style encoder with Original and GroupOpt decoding modes."""
+    """同时支持 Original 与 GroupOpt 解码模式的 AM 风格编码器。"""
 
     def __init__(
         self,
@@ -177,8 +177,7 @@ class AttentionModel(nn.Module):
                 output, node_embeddings, return_symmetry_embeddings
             )
 
-        # Original: follow the anchored native construction order and let AM's
-        # native head decoder choose the other endpoint.
+        # Original：遵循锚定的原生构造顺序，由 AM 原生 head decoder 选择另一端点。
         process = self.construction_process
         state = process.initial_state(coordinates)
         graph_context = self.project_graph(graph_embedding)
@@ -259,7 +258,7 @@ class AttentionModel(nn.Module):
         temperature: float,
         generator: torch.Generator | None,
     ) -> AttentionModelOutput:
-        """Select a tail without changing the native conditional head policy."""
+        """在不改变原生条件 head 策略的前提下选择 tail。"""
         process = self.construction_process
         state = process.initial_state(coordinates)
         graph_context = self.project_graph(graph_embedding)
@@ -356,11 +355,10 @@ class AttentionModel(nn.Module):
         node_embeddings: Tensor,
         state: BatchedTSPState,
     ) -> Tensor:
-        """Attach the current open-path structure to every candidate tail.
+        """为每个候选 tail 加入当前开放路径的结构信息。
 
-        A path is summarized by its start endpoint, the mean embedding of its
-        vertices, and its normalized size. Together with the candidate tail's own
-        embedding, this exposes both endpoints and the current component geometry.
+        路径由起始端点、路径顶点平均表示和归一化规模概括。它们与候选 tail 自身的
+        表示一起，使评分器能够感知两个端点以及当前分量的几何结构。
         """
         return node_embeddings + self.project_tail_state(
             state.path_state_features(node_embeddings)
@@ -393,7 +391,7 @@ class AttentionModel(nn.Module):
         mask: Tensor,
         glimpse_projection: nn.Linear,
     ) -> Tensor:
-        """Return native AM logits for one or many conditional queries."""
+        """返回一个或多个条件 query 对应的原生 AM logits。"""
         squeeze_query = query.ndim == 2
         if squeeze_query:
             query = query.unsqueeze(1)

@@ -1,7 +1,6 @@
-"""Stable public interface for the GroupOpt construction paradigm.
+"""GroupOpt 构造范式的稳定公共接口。
 
-Problem implementations and neural methods depend on this package.  The framework
-package deliberately does not import either of them.
+问题实现和神经方法都依赖本包；框架包特意不反向导入它们。
 """
 
 from groupopt.framework.contracts import ConstructionProcess

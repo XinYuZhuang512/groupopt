@@ -1,4 +1,4 @@
-"""Utilities for minimally invasive native conditional decoder adapters."""
+"""用于低侵入式原生条件 decoder 适配器的工具函数。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from torch import Tensor
 
 
 def categorical_entropy(log_probabilities: Tensor) -> Tensor:
-    """Return categorical entropy without producing ``0 * -inf``."""
+    """计算分类熵，并避免产生 ``0 * -inf``。"""
     terms = torch.where(
         torch.isfinite(log_probabilities),
         log_probabilities.exp() * log_probabilities,
@@ -23,7 +23,7 @@ def masked_conditional_log_probabilities(
     mask: Tensor,
     temperature: float,
 ) -> Tensor:
-    """Normalize each tail row without comparing logits across tails."""
+    """分别归一化每个 tail 行，不在不同 tail 的 logits 之间进行比较。"""
     if logits.shape != mask.shape or logits.ndim != 3 or mask.dtype != torch.bool:
         raise ValueError("logits and mask must have shape (batch, tails, heads)")
     if temperature <= 0.0:
@@ -36,10 +36,10 @@ def masked_conditional_log_probabilities(
 
 
 def native_head_summary(log_p: Tensor, distances: Tensor) -> Tensor:
-    """Return detached-scale-friendly summaries of native head distributions.
+    """返回便于分离尺度的原生 head 分布摘要。
 
-    The three features are normalized entropy, normalized expected edge cost,
-    and maximum conditional probability. Fully masked tail rows map to zeros.
+    三个特征依次为归一化熵、归一化预期边代价和最大条件概率。
+    完全被 mask 的 tail 行映射为零。
     """
     if log_p.shape != distances.shape or log_p.ndim != 3:
         raise ValueError("log_p and distances must have shape (batch, tails, heads)")
@@ -55,7 +55,7 @@ def native_head_summary(log_p: Tensor, distances: Tensor) -> Tensor:
 
 
 def joint_action_entropy(tail_log_p: Tensor, head_log_p: Tensor) -> Tensor:
-    """Return H(tail) + E_tail[H(head | tail)] for a factorized policy."""
+    """计算分解策略的 H(tail) + E_tail[H(head | tail)]。"""
     if tail_log_p.ndim != 2 or head_log_p.ndim != 3:
         raise ValueError("tail and head log probabilities have incompatible ranks")
     if head_log_p.shape[:2] != tail_log_p.shape:

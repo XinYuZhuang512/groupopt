@@ -1,4 +1,4 @@
-"""Model-agnostic group-theoretic construction framework."""
+"""与模型无关的群论构造框架。"""
 
 from groupopt.framework import (
     BaseSelection,

@@ -1,4 +1,4 @@
-"""Train an Original or GroupOpt model with resumable state."""
+"""训练可断点续训的 Original 或 GroupOpt 模型。"""
 
 from __future__ import annotations
 
@@ -357,8 +357,7 @@ def _experiment_config(args: argparse.Namespace, device: torch.device) -> dict[s
             args.symmetry_factor
         )
     else:
-        # Preserve the historical config schema so interrupted standard runs
-        # remain resumable after symmetry training support was added.
+        # 保留既有配置格式，使加入对称训练支持前中断的标准实验仍可续训。
         config.pop("training_scheme", None)
         config.pop("symmetry_factor", None)
         config.pop("symmetry_alpha", None)

@@ -1,4 +1,4 @@
-"""Optional PyTorch bridge between the core paradigm and neural methods."""
+"""连接核心范式与神经方法的可选 PyTorch 桥接层。"""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ StateT = TypeVar("StateT")
 
 @dataclass(frozen=True, slots=True)
 class ConstructionOutput:
-    """Common tensor result returned by every neural method adapter."""
+    """所有神经方法适配器统一返回的张量结果。"""
 
     cost: Tensor
     log_likelihood: Tensor
@@ -28,11 +28,10 @@ class ConstructionOutput:
 
 @runtime_checkable
 class BatchedConstructionProcess(Protocol[InstanceT_contra, StateT]):
-    """Tensorized problem plugin consumed by neural model adapters.
+    """供神经模型适配器使用的张量化问题插件。
 
-    Boolean masks follow the attention convention: ``True`` means illegal.
-    Feasibility, transitions, fixed-base behavior and the objective remain owned by
-    the problem plugin rather than a neural model.
+    布尔 mask 遵循 attention 约定：``True`` 表示非法。可行性、状态转移、
+    固定 base 行为和目标函数均由问题插件负责，而不是由神经模型负责。
     """
 
     def initial_state(self, instance: InstanceT_contra) -> StateT: ...
@@ -60,7 +59,7 @@ class BatchedConstructionProcess(Protocol[InstanceT_contra, StateT]):
 
 @runtime_checkable
 class ConstructionModel(Protocol):
-    """Stable neural adapter interface shared by all model families."""
+    """所有模型族共享的稳定神经适配器接口。"""
 
     def forward(
         self,
@@ -71,5 +70,5 @@ class ConstructionModel(Protocol):
         temperature: float = 1.0,
         generator: Generator | None = None,
     ) -> ConstructionOutput:
-        """Score framework actions and return one feasible construction."""
+        """为框架动作评分，并返回一个可行的构造结果。"""
         ...

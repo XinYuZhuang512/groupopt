@@ -1,4 +1,4 @@
-"""One explicit extension point for model families used with GroupOpt."""
+"""供不同模型族接入 GroupOpt 的统一扩展点。"""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ ModelBuilder = Callable[[Mapping[str, Any]], nn.Module]
 
 
 class ModelRegistry:
-    """Register and build neural methods without changing framework code."""
+    """在不修改框架代码的情况下注册并构建神经方法。"""
 
     def __init__(self) -> None:
         self._builders: dict[str, ModelBuilder] = {}
@@ -72,5 +72,5 @@ model_registry.register("gpn", _gpn)
 
 
 def build_model(config: Mapping[str, Any]) -> nn.Module:
-    """Build one registered neural adapter from an experiment config."""
+    """根据实验配置构建一个已注册的神经适配器。"""
     return model_registry.build(config)

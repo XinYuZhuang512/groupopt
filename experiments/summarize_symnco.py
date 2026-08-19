@@ -1,4 +1,4 @@
-"""Summarize the AM Original/Ours x REINFORCE/SYM-NCO factorial pilot."""
+"""汇总 AM 上 Original/Ours × REINFORCE/SYM-NCO 的析因实验。"""
 
 from __future__ import annotations
 

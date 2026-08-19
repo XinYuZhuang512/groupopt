@@ -1,4 +1,4 @@
-"""Evaluate one trained checkpoint on a fixed independent TSP test set."""
+"""在固定的独立 TSP 测试集上评估一个训练 checkpoint。"""
 
 from __future__ import annotations
 

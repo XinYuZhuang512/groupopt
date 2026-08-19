@@ -1,4 +1,4 @@
-"""Neural-method adapters and their registration boundary."""
+"""神经方法适配器及其注册边界。"""
 
 from groupopt.adapters.registry import ModelRegistry, build_model, model_registry
 

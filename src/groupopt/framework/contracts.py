@@ -1,4 +1,4 @@
-"""Protocols forming the dependency boundary of the GroupOpt paradigm."""
+"""构成 GroupOpt 范式依赖边界的协议。"""
 
 from __future__ import annotations
 
@@ -15,20 +15,20 @@ SolutionT_co = TypeVar("SolutionT_co", covariant=True)
 class ConstructionProcess(
     Protocol[InstanceT_contra, StateT, BaseT, RepresentativeT, SolutionT_co]
 ):
-    """Problem-owned semantics for one constructive optimization process."""
+    """由问题层负责定义的构造式优化过程语义。"""
 
     def initial_state(self, instance: InstanceT_contra) -> StateT:
-        """Create an empty construction state."""
+        """创建空的构造状态。"""
         ...
 
     def base_candidates(self, state: StateT) -> tuple[BaseT, ...]:
-        """Return objects that may be stabilized next."""
+        """返回下一步可以稳定化的对象。"""
         ...
 
     def representative_candidates(
         self, state: StateT, selected_base: BaseT
     ) -> tuple[RepresentativeT, ...]:
-        """Return legal representatives conditional on one base."""
+        """返回给定 base 条件下的合法代表元。"""
         ...
 
     def transition(
@@ -37,13 +37,13 @@ class ConstructionProcess(
         selected_base: BaseT,
         selected_representative: RepresentativeT,
     ) -> StateT:
-        """Apply one legal action; models never own this transition."""
+        """执行一个合法动作；状态转移不由模型负责。"""
         ...
 
     def is_terminal(self, state: StateT) -> bool:
-        """Return whether a complete solution has been constructed."""
+        """判断是否已经构造出完整解。"""
         ...
 
     def decode(self, state: StateT) -> SolutionT_co:
-        """Decode and validate a terminal state."""
+        """解码并验证终止状态。"""
         ...

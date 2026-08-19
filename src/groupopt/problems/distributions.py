@@ -1,4 +1,4 @@
-"""Deterministic Euclidean TSP instance distributions for robustness tests."""
+"""用于鲁棒性实验的确定性 Euclidean TSP 实例分布。"""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def generate_tsp_coordinates(
     distribution: TSPDistribution,
     seed: int,
 ) -> Tensor:
-    """Generate a fixed CPU tensor in ``[0, 1]^2`` without global RNG mutation."""
+    """生成位于 ``[0, 1]^2`` 的固定 CPU 张量，且不改变全局随机数状态。"""
     if sample_count < 1 or node_count < 2:
         raise ValueError("sample_count must be positive and node_count at least two")
     if distribution not in TSP_DISTRIBUTIONS:

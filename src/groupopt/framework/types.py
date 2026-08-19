@@ -1,4 +1,4 @@
-"""Framework-owned values shared across problems and model adapters."""
+"""由框架定义、在问题实现与模型适配器之间共享的数据类型。"""
 
 from __future__ import annotations
 
@@ -12,14 +12,14 @@ SolutionT = TypeVar("SolutionT")
 
 
 class BaseSelection(str, Enum):
-    """The two scientific configurations defined by the paradigm."""
+    """该范式定义的两种科学实验配置。"""
 
     FIXED = "fixed"
     LEARNED = "learned"
 
 
 class DecodeStrategy(str, Enum):
-    """Action selection strategy; intentionally separate from base selection."""
+    """动作选择策略；特意与 base 选择机制分离。"""
 
     GREEDY = "greedy"
     SAMPLING = "sampling"

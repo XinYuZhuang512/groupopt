@@ -1,4 +1,4 @@
-"""SYM-NCO's problem-symmetry objective for Euclidean AM training."""
+"""用于 Euclidean AM 训练的 SYM-NCO 问题对称性目标。"""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ class SymNCOLoss:
 
 
 class SymmetryProjectionHead(nn.Sequential):
-    """Training-only projection head used by the official AM implementation."""
+    """官方 AM 实现中仅在训练阶段使用的 projection head。"""
 
     def __init__(self, embedding_dim: int) -> None:
         if embedding_dim < 1:
@@ -35,7 +35,7 @@ def augment_euclidean_symmetries(
     factor: int,
     generator: torch.Generator | None = None,
 ) -> Tensor:
-    """Return factor-first random rotations/reflections of each TSP instance."""
+    """对每个 TSP 实例执行随机旋转或反射，并按对称因子优先排列。"""
     if coordinates.ndim != 3 or coordinates.shape[-1] != 2:
         raise ValueError("coordinates must have shape (batch, nodes, 2)")
     if factor < 1:
@@ -80,7 +80,7 @@ def symnco_am_loss(
     factor: int,
     alpha: float = 0.1,
 ) -> SymNCOLoss:
-    """Compute the official AM-style SYM-NCO problem-symmetry objective."""
+    """计算官方 AM 风格的 SYM-NCO 问题对称性目标。"""
     if factor < 2:
         raise ValueError("SYM-NCO training requires a symmetry factor of at least two")
     if alpha < 0:

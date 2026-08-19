@@ -1,4 +1,4 @@
-"""Model-independent reference execution of the construction paradigm."""
+"""构造范式中与模型无关的参考执行器。"""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def construct(
         [StateT, BaseT, tuple[RepresentativeT, ...]], RepresentativeT
     ],
 ) -> ConstructionTrace[BaseT, RepresentativeT, SolutionT]:
-    """Run a process using arbitrary scorers/selectors supplied by an adapter."""
+    """使用适配器提供的任意评分器或选择器执行构造过程。"""
     state = process.initial_state(instance)
     actions: list[ConstructionAction[BaseT, RepresentativeT]] = []
     while not process.is_terminal(state):

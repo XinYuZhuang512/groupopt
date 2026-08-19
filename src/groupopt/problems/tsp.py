@@ -1,9 +1,8 @@
-"""A feasibility-preserving construction process for directed TSP tours.
+"""保持可行性的有向 TSP 回路构造过程。
 
-A tour is represented by a permutation. At every non-closing step, the process
-chooses a path tail ``x`` and a head ``y`` belonging to another component, then fixes
-the partial mapping ``sigma(x) = y``. This is the adaptive-base construction from the
-framework document, expressed without any neural-model dependency.
+回路用一个置换表示。在每个非闭合步骤中，构造过程选择路径尾点 ``x``，以及属于
+另一连通分量的头点 ``y``，随后固定局部映射 ``sigma(x) = y``。这里以不依赖任何
+神经模型的方式表达框架中的可学习 base 构造。
 """
 
 from __future__ import annotations
@@ -14,12 +13,12 @@ from math import fsum
 
 
 class InvalidAction(ValueError):
-    """Raised when an action violates the construction mask."""
+    """当动作违反构造 mask 时抛出。"""
 
 
 @dataclass(frozen=True, slots=True)
 class TSPState:
-    """An immutable collection of disjoint directed paths, or one final cycle."""
+    """不可变的互不相交有向路径集合，或最终的单一环。"""
 
     n: int
     successor: tuple[int | None, ...]
@@ -33,12 +32,12 @@ class TSPState:
 
     @property
     def heads(self) -> tuple[int, ...]:
-        """Vertices without a fixed incoming edge."""
+        """尚未固定入边的顶点。"""
         return tuple(i for i, value in enumerate(self.predecessor) if value is None)
 
     @property
     def tails(self) -> tuple[int, ...]:
-        """Vertices without a fixed outgoing edge."""
+        """尚未固定出边的顶点。"""
         return tuple(i for i, value in enumerate(self.successor) if value is None)
 
     @property
@@ -48,7 +47,7 @@ class TSPState:
 
 @dataclass(frozen=True, slots=True)
 class DirectedTour:
-    """A directed Hamiltonian cycle in successor and visit-order forms."""
+    """以后继映射和访问顺序两种形式表示的有向 Hamilton 环。"""
 
     successor: tuple[int, ...]
     order: tuple[int, ...]
@@ -59,10 +58,10 @@ class DirectedTour:
 
 
 class DirectedTSPConstruction:
-    """Construct a single directed Hamiltonian cycle on ``n`` vertices."""
+    """在 ``n`` 个顶点上构造一个有向 Hamilton 环。"""
 
     def initial_state(self, instance: int) -> TSPState:
-        """Use the vertex count as the minimal TSP instance description."""
+        """使用顶点数作为最简 TSP 实例描述。"""
         if instance < 2:
             raise ValueError("directed TSP construction requires at least two vertices")
 
@@ -77,7 +76,7 @@ class DirectedTSPConstruction:
         return state
 
     def base_candidates(self, state: TSPState) -> tuple[int, ...]:
-        """Return path tails: domains whose image is not fixed yet."""
+        """返回路径尾点，即映射目标尚未固定的定义域元素。"""
         if state.terminal:
             return ()
         return state.tails
@@ -85,10 +84,10 @@ class DirectedTSPConstruction:
     def representative_candidates(
         self, state: TSPState, selected_base: int
     ) -> tuple[int, ...]:
-        """Return heads that can be the selected base's image.
+        """返回可以作为所选 base 映射目标的头点。
 
-        While multiple components remain, the same-component head is masked to avoid
-        a subtour. With one path left, that head is the unique closing choice.
+        当仍有多个分量时，mask 掉同分量头点以避免子环；只剩一条路径时，
+        该头点是唯一的闭合选择。
         """
         if selected_base not in self.base_candidates(state):
             raise InvalidAction(f"{selected_base} is not an available path tail")
@@ -109,7 +108,7 @@ class DirectedTSPConstruction:
         selected_base: int,
         selected_representative: int,
     ) -> TSPState:
-        """Add one edge and merge its two path components when applicable."""
+        """加入一条边，并在需要时合并它连接的两个路径分量。"""
         legal_representatives = self.representative_candidates(state, selected_base)
         if selected_representative not in legal_representatives:
             raise InvalidAction(
@@ -144,7 +143,7 @@ class DirectedTSPConstruction:
         return state.terminal
 
     def decode(self, state: TSPState) -> DirectedTour:
-        """Decode a terminal state and independently verify its single-cycle form."""
+        """解码终止状态，并独立验证其为单一环。"""
         if not state.terminal:
             raise ValueError("cannot decode a non-terminal TSP state")
 
@@ -162,10 +161,9 @@ class DirectedTSPConstruction:
         return DirectedTour(successor=successor, order=tuple(order))
 
     def sequential_base(self, state: TSPState, anchor: int = 0) -> int:
-        """Select the current tail of an anchored path for fixed-base decoding.
+        """为固定 base 解码选择锚定路径当前的尾点。
 
-        This deterministic rule embeds ordinary one-path-at-a-time decoding in the
-        same state machine used by adaptive-base decoding.
+        该确定性规则把普通的逐路径解码嵌入到可学习 base 解码所用的同一状态机中。
         """
         if state.terminal:
             raise InvalidAction("a terminal state has no next base")
@@ -181,7 +179,7 @@ class DirectedTSPConstruction:
         return candidates[0]
 
     def validate_state(self, state: TSPState) -> None:
-        """Check representation and graph invariants without trusting transitions."""
+        """不依赖状态转移的正确性，直接检查表示与图不变量。"""
         n = state.n
         if n < 2:
             raise ValueError("a TSP state requires at least two vertices")
@@ -231,7 +229,7 @@ class DirectedTSPConstruction:
 def tour_length(
     tour: DirectedTour, distance_matrix: Sequence[Sequence[float]]
 ) -> float:
-    """Evaluate a tour against a square directed distance matrix."""
+    """根据方形有向距离矩阵计算回路长度。"""
     n = len(tour.successor)
     if len(distance_matrix) != n or any(len(row) != n for row in distance_matrix):
         raise ValueError("distance matrix shape must match the tour")
@@ -250,7 +248,7 @@ def _require_vertex(vertex: int | None) -> int:
 
 
 def _graph_component_partition(state: TSPState) -> tuple[int, ...]:
-    """Compute weakly connected components directly from the partial graph."""
+    """直接根据部分图计算弱连通分量。"""
     labels = [-1] * state.n
     next_label = 0
 

@@ -1,4 +1,4 @@
-"""Graph Pointer Network adapter for the shared TSP construction process."""
+"""面向统一 TSP 构造过程的 Graph Pointer Network 适配器。"""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ GraphPointerNetworkOutput = ConstructionOutput
 
 
 class _CompleteGraphEmbeddingLayer(nn.Module):
-    """One residual message-passing layer on the complete TSP graph."""
+    """TSP 完全图上的单层残差消息传递。"""
 
     def __init__(self, embedding_dim: int) -> None:
         super().__init__()
@@ -84,7 +84,7 @@ class _PointerAttention(nn.Module):
         return torch.log_softmax(logits / temperature, dim=-1)
 
     def logits(self, query: Tensor, candidates: Tensor, mask: Tensor) -> Tensor:
-        """Return native pointer logits for one or many conditional queries."""
+        """返回一个或多个条件 query 对应的原生 pointer logits。"""
         squeeze_query = query.ndim == 2
         if squeeze_query:
             query = query.unsqueeze(1)
@@ -108,7 +108,7 @@ class _PointerAttention(nn.Module):
 
 
 class GraphPointerNetwork(nn.Module):
-    """GPN scorer with Original and GroupOpt decoding modes."""
+    """同时支持 Original 与 GroupOpt 解码模式的 GPN 评分器。"""
 
     def __init__(
         self,
@@ -166,8 +166,7 @@ class GraphPointerNetwork(nn.Module):
                 generator,
             )
 
-        # Original: use the anchored construction order and the native GPN
-        # decoder for the other endpoint.
+        # Original：使用锚定的构造顺序，由原生 GPN decoder 选择另一端点。
         decoder_hidden = torch.tanh(self.initial_hidden(graph_embedding))
         decoder_cell = torch.tanh(self.initial_cell(graph_embedding))
         process = self.construction_process
@@ -234,7 +233,7 @@ class GraphPointerNetwork(nn.Module):
         temperature: float,
         generator: torch.Generator | None,
     ) -> GraphPointerNetworkOutput:
-        """Add base scheduling while preserving GPN head conditionals."""
+        """在保留 GPN 条件 head 分布的同时加入 base 调度。"""
         decoder_hidden = torch.tanh(self.initial_hidden(graph_embedding))
         decoder_cell = torch.tanh(self.initial_cell(graph_embedding))
         process = self.construction_process

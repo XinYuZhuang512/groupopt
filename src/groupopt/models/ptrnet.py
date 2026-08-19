@@ -1,4 +1,4 @@
-"""Pointer Network integration for Original and GroupOpt TSP construction."""
+"""用于 Original 与 GroupOpt TSP 构造的 Pointer Network 接入实现。"""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ class _PointerAttention(nn.Module):
         return torch.log_softmax(logits / temperature, dim=-1)
 
     def logits(self, query: Tensor, candidates: Tensor, mask: Tensor) -> Tensor:
-        """Return native pointer logits for one or many conditional queries."""
+        """返回一个或多个条件 query 对应的原生 pointer logits。"""
         squeeze_query = query.ndim == 2
         if squeeze_query:
             query = query.unsqueeze(1)
@@ -74,7 +74,7 @@ class _PointerAttention(nn.Module):
 
 
 class PointerNetwork(nn.Module):
-    """LSTM Pointer Network with Original and GroupOpt decoding modes."""
+    """同时支持 Original 与 GroupOpt 解码模式的 LSTM Pointer Network。"""
 
     def __init__(
         self,
@@ -135,8 +135,7 @@ class PointerNetwork(nn.Module):
                 generator,
             )
 
-        # Original: use the anchored construction order and the native pointer
-        # decoder for the other endpoint.
+        # Original：使用锚定的构造顺序，由原生 pointer decoder 选择另一端点。
         decoder_hidden = encoder_hidden[-1]
         decoder_cell = encoder_cell[-1]
         graph_embedding = node_embeddings.mean(dim=1)
@@ -201,7 +200,7 @@ class PointerNetwork(nn.Module):
         temperature: float,
         generator: torch.Generator | None,
     ) -> PointerNetworkOutput:
-        """Add base scheduling while preserving PtrNet head conditionals."""
+        """在保留 PtrNet 条件 head 分布的同时加入 base 调度。"""
         graph_embedding = node_embeddings.mean(dim=1)
         distances = torch.cdist(coordinates, coordinates)
         process = self.construction_process

@@ -1,4 +1,4 @@
-"""Neural scoring models that plug into construction processes."""
+"""可接入构造过程的神经评分模型。"""
 
 from groupopt.models.am import AttentionModel, AttentionModelOutput
 from groupopt.models.gpn import GraphPointerNetwork, GraphPointerNetworkOutput

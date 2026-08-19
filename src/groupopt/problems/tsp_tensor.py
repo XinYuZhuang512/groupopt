@@ -1,4 +1,4 @@
-"""Vectorized PyTorch state with the same semantics as the reference TSP process."""
+"""与参考 TSP 过程语义一致的向量化 PyTorch 状态。"""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from torch import Tensor
 
 @dataclass(frozen=True, slots=True)
 class BatchedTSPState:
-    """A synchronous batch of partial directed TSP constructions.
+    """一批同步推进的部分有向 TSP 构造。
 
-    ``True`` mask entries are illegal, matching the convention used by attention
-    decoders. Component labels encode weakly connected path components.
+    mask 中的 ``True`` 表示非法，与 attention decoder 的约定一致。
+    分量标签用于编码弱连通路径分量。
     """
 
     coordinates: Tensor
@@ -55,13 +55,13 @@ class BatchedTSPState:
         return self.edges_added == self.n
 
     def tail_mask(self) -> Tensor:
-        """Mask vertices whose outgoing edge has already been fixed."""
+        """mask 掉出边已经固定的顶点。"""
         if self.terminal:
             return torch.ones_like(self.successor, dtype=torch.bool)
         return self.successor >= 0
 
     def head_mask(self, selected_tail: Tensor) -> Tensor:
-        """Mask used heads and same-component heads before the closing step."""
+        """在闭合步骤前 mask 掉已使用头点和同分量头点。"""
         self._validate_action_vector(selected_tail, "selected_tail")
         if self.terminal:
             raise ValueError("a terminal state has no head candidates")
@@ -79,7 +79,7 @@ class BatchedTSPState:
         return basic_mask | same_component
 
     def edge_action_mask(self, fixed_tail: Tensor | None = None) -> Tensor:
-        """Mask illegal joint ``(tail, head)`` construction actions."""
+        """mask 掉非法的联合 ``(tail, head)`` 构造动作。"""
         if self.terminal:
             return torch.ones(
                 self.batch_size,
@@ -110,7 +110,7 @@ class BatchedTSPState:
         return mask
 
     def sequential_base(self, anchor: int = 0) -> Tensor:
-        """Return the unique tail of each batch item's anchored component."""
+        """返回批次中每个样本锚定分量的唯一尾点。"""
         if self.terminal:
             raise ValueError("a terminal state has no sequential base")
         if not 0 <= anchor < self.n:
@@ -123,11 +123,10 @@ class BatchedTSPState:
         return candidates.to(torch.long).argmax(dim=1)
 
     def path_state_features(self, node_embeddings: Tensor) -> Tensor:
-        """Summarize the open path containing each vertex.
+        """汇总每个顶点所在开放路径的状态。
 
-        The result concatenates the component mean embedding, the embedding of the
-        unique path start (the vertex without a predecessor), and normalized path
-        size. It is model-independent state information for adaptive base selection.
+        结果拼接分量平均表示、唯一路径起点（无前驱的顶点）的表示，以及归一化路径规模。
+        这些是供可学习 base 选择使用、且与模型无关的状态信息。
         """
         if node_embeddings.ndim != 3 or node_embeddings.shape[:2] != (
             self.batch_size,
@@ -158,7 +157,7 @@ class BatchedTSPState:
         return torch.cat((component_mean, path_start, normalized_size), dim=-1)
 
     def update(self, selected_tail: Tensor, selected_head: Tensor) -> BatchedTSPState:
-        """Add one legal edge per batch item and return a new state."""
+        """为批次中的每个样本加入一条合法边，并返回新状态。"""
         self._validate_action_vector(selected_tail, "selected_tail")
         self._validate_action_vector(selected_head, "selected_head")
         batch = torch.arange(self.batch_size, device=self.coordinates.device)
@@ -189,7 +188,7 @@ class BatchedTSPState:
         )
 
     def edge_cost(self, tails: Tensor, heads: Tensor) -> Tensor:
-        """Return the Euclidean cost of a batch of edge sequences."""
+        """返回一批边序列的 Euclidean 距离代价。"""
         if tails.shape != heads.shape or tails.ndim != 2:
             raise ValueError("tails and heads must both have shape (batch, steps)")
         if tails.size(0) != self.batch_size:
@@ -212,10 +211,10 @@ class BatchedTSPState:
 
 
 class BatchedTSPConstruction:
-    """Tensorized TSP problem plugin for :class:`BatchedConstructionProcess`.
+    """供 :class:`BatchedConstructionProcess` 使用的张量化 TSP 问题插件。
 
-    This stateless adapter is the sole owner of TSP feasibility, transition,
-    fixed-base and objective semantics exposed to neural model adapters.
+    该无状态适配器独立负责向神经模型适配器暴露的 TSP 可行性、状态转移、
+    固定 base 行为和目标函数语义。
     """
 
     def initial_state(self, instance: Tensor) -> BatchedTSPState:
