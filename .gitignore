@@ -9,8 +9,9 @@ __pycache__/
 venv/
 build/
 dist/
+/tmp/
 
-# Experiment outputs
+# 实验输出
 artifacts
 checkpoints/
 results/
