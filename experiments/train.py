@@ -21,7 +21,11 @@ from groupopt.objectives import (
     symnco_am_loss,
 )
 
-BASE_MODES = ("native_conditional_fixed", "native_conditional_free")
+BASE_MODES = (
+    "native_conditional_fixed",
+    "native_conditional_free",
+    "official_original",
+)
 
 
 def evaluate(
