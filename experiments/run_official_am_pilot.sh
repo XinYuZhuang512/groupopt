@@ -13,6 +13,7 @@ TEST_SIZE="${TEST_SIZE:-2000}"
 BATCH_SIZE="${BATCH_SIZE:-64}"
 VALIDATION_SIZE="${VALIDATION_SIZE:-256}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-artifacts/iclr_official_am_pilot}"
+EVAL_STEPS="${EVAL_STEPS:-${STEPS}}"
 
 cd "${PROJECT_DIR}"
 export PYTHONPATH="${PROJECT_DIR}/src${PYTHONPATH:+:${PYTHONPATH}}"
@@ -44,17 +45,23 @@ for mode in official_original native_conditional_free; do
       --device cuda
   fi
 
-  evaluation_dir="${OUTPUT_ROOT}/eval/iid_tsp50_seed${TEST_SEED}/${mode}_seed${SEED}"
-  if [[ ! -f "${evaluation_dir}/summary.json" ]]; then
-    "${PYTHON_BIN}" experiments/evaluate.py \
-      --checkpoint "${final_checkpoint}" \
-      --config "${run_dir}/config.json" \
-      --output-dir "${evaluation_dir}" \
-      --test-size "${TEST_SIZE}" \
-      --test-seed "${TEST_SEED}" \
-      --graph-size 50 \
-      --batch-size "${BATCH_SIZE}" \
-      --device cuda
-  fi
+  for evaluation_step in ${EVAL_STEPS}; do
+    checkpoint="$(printf '%s/checkpoints/step-%06d.pt' "${run_dir}" "${evaluation_step}")"
+    if [[ ! -f "${checkpoint}" ]]; then
+      echo "缺少待评估 checkpoint: ${checkpoint}" >&2
+      exit 3
+    fi
+    evaluation_dir="${OUTPUT_ROOT}/eval/iid_tsp50_seed${TEST_SEED}/${mode}_step${evaluation_step}_seed${SEED}"
+    if [[ ! -f "${evaluation_dir}/summary.json" ]]; then
+      "${PYTHON_BIN}" experiments/evaluate.py \
+        --checkpoint "${checkpoint}" \
+        --config "${run_dir}/config.json" \
+        --output-dir "${evaluation_dir}" \
+        --test-size "${TEST_SIZE}" \
+        --test-seed "${TEST_SEED}" \
+        --graph-size 50 \
+        --batch-size "${BATCH_SIZE}" \
+        --device cuda
+    fi
+  done
 done
-
