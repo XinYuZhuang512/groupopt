@@ -83,7 +83,10 @@ experiments/
 └── paper/
     ├── protocol_tsp50.json       已完成主表的冻结协议
     ├── run_main_tsp50.sh         四宿主×两方法×三种子复现入口
-    └── summarize_main_tsp50.py   配对统计与论文主表汇总
+    ├── summarize_main_tsp50.py   配对统计与论文主表汇总
+    ├── protocol_convergence_tsp50.json  长程训练选择协议
+    ├── run_convergence_tsp50.sh         从已有 checkpoint 独立续训
+    └── summarize_convergence_tsp50.py   各训练步配对曲线汇总
 ```
 
 更详细的逐文件说明见 `docs/CODE_LAYOUT.md`，实验边界和结果出处见
