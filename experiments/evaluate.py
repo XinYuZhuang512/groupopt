@@ -25,26 +25,10 @@ def load_model(
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     model = build_model(config).to(device)
     incompatible = model.load_state_dict(checkpoint["model"], strict=False)
-    allowed_missing_prefixes = ["project_hybrid_in.", "project_hybrid_out."]
     # 早期 checkpoint 曾保存两个现已删除、且不参与 native conditional
     # 前向计算的诊断模块。只放行这两个精确前缀，其他未知参数仍视为错误。
     allowed_unexpected_prefixes = ["tail_gate.", "joint_action_scorer."]
-    allowed_missing_names: set[str] = set()
-    if evaluation_mode != "official_capacity_single_chain":
-        # 容量对照晚于 edge-native checkpoint 加入，且只在容量模式使用。
-        allowed_missing_names.add("capacity_extra")
-        allowed_missing_prefixes.extend(["project_capacity_in.", "project_capacity_out."])
-    if evaluation_mode == "official_original":
-        # Original 前向只调用官方 native 模型。旧 checkpoint 可能早于
-        # GroupOpt/容量对照参数的加入；只要 native 参数完整，就可安全评估。
-        unsafe_missing = [name for name in incompatible.missing_keys if name.startswith("native.")]
-    else:
-        unsafe_missing = [
-            name
-            for name in incompatible.missing_keys
-            if name not in allowed_missing_names
-            and not name.startswith(tuple(allowed_missing_prefixes))
-        ]
+    unsafe_missing = list(incompatible.missing_keys)
     unsafe_unexpected = [
         name
         for name in incompatible.unexpected_keys
@@ -113,8 +97,6 @@ def evaluate(args: argparse.Namespace) -> None:
         "test_size": args.test_size,
         "train_seed": int(config["seed"]),
         "training_scheme": config.get("training_scheme", "reinforce"),
-        "symmetry_factor": int(config.get("symmetry_factor", 1)),
-        "symmetry_alpha": float(config.get("symmetry_alpha", 0.0)),
     }
     atomic_torch_save(
         {

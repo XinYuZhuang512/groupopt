@@ -1,32 +1,23 @@
-"""GroupOpt 构造范式的稳定公共接口。
+"""GroupOpt Forest-native 范式的稳定公共接口。"""
 
-问题实现和神经方法都依赖本包；框架包特意不反向导入它们。
-"""
-
-from groupopt.framework.contracts import ConstructionProcess
-from groupopt.framework.engine import construct
 from groupopt.framework.forest_decoder import (
     CallableForestAwareDecoder,
     ForestAwareDecoder,
     ForestHeadProposal,
     decode_forest_edges,
 )
-from groupopt.framework.types import (
-    BaseSelection,
-    ConstructionAction,
-    ConstructionTrace,
-    DecodeStrategy,
+from groupopt.framework.neural import (
+    BatchedConstructionProcess,
+    ConstructionModel,
+    ConstructionOutput,
 )
 
 __all__ = [
-    "BaseSelection",
+    "BatchedConstructionProcess",
     "CallableForestAwareDecoder",
-    "ConstructionAction",
-    "ConstructionProcess",
-    "ConstructionTrace",
-    "DecodeStrategy",
+    "ConstructionModel",
+    "ConstructionOutput",
     "ForestAwareDecoder",
     "ForestHeadProposal",
-    "construct",
     "decode_forest_edges",
 ]

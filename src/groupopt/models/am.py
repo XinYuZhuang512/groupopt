@@ -7,7 +7,6 @@ attention 决策：先选择 tail（base），再选择合法 head（代表元�
 
 from __future__ import annotations
 
-from dataclasses import replace
 from math import sqrt
 from typing import Literal
 
@@ -165,7 +164,6 @@ class AttentionModel(nn.Module):
         anchor: int = 0,
         temperature: float = 1.0,
         generator: torch.Generator | None = None,
-        return_symmetry_embeddings: bool = False,
     ) -> AttentionModelOutput:
         if temperature <= 0:
             raise ValueError("temperature must be positive")
@@ -174,7 +172,7 @@ class AttentionModel(nn.Module):
 
         node_embeddings, graph_embedding = self.encoder(coordinates)
         if base_mode == "native_conditional_free":
-            output = self._decode_native_conditional_free(
+            return self._decode_native_conditional_free(
                 coordinates,
                 node_embeddings,
                 graph_embedding,
@@ -182,11 +180,8 @@ class AttentionModel(nn.Module):
                 temperature,
                 generator,
             )
-            return self._with_symmetry_embeddings(
-                output, node_embeddings, return_symmetry_embeddings
-            )
         if base_mode == "native_capacity_single_chain":
-            output = self._decode_native_capacity_single_chain(
+            return self._decode_native_capacity_single_chain(
                 coordinates,
                 node_embeddings,
                 graph_embedding,
@@ -194,9 +189,6 @@ class AttentionModel(nn.Module):
                 temperature,
                 generator,
                 anchor,
-            )
-            return self._with_symmetry_embeddings(
-                output, node_embeddings, return_symmetry_embeddings
             )
 
         # native_original 与历史 fixed 名称共用同一条单链实现；后者仅为旧 checkpoint 兼容。
@@ -254,20 +246,9 @@ class AttentionModel(nn.Module):
             heads=head_tensor,
             successor=process.solution(state),
             tail_entropy=zeros,
-            gate_probability=zeros,
             action_entropy=zeros,
         )
-        return self._with_symmetry_embeddings(output, node_embeddings, return_symmetry_embeddings)
-
-    def _with_symmetry_embeddings(
-        self,
-        output: AttentionModelOutput,
-        node_embeddings: Tensor,
-        include: bool,
-    ) -> AttentionModelOutput:
-        if not include:
-            return output
-        return replace(output, symmetry_node_embeddings=node_embeddings)
+        return output
 
     def _decode_native_conditional_free(
         self,
@@ -459,7 +440,6 @@ class AttentionModel(nn.Module):
             heads=head_tensor,
             successor=process.solution(state),
             tail_entropy=zeros,
-            gate_probability=zeros,
             action_entropy=torch.stack(action_entropies, dim=1).mean(dim=1),
         )
 

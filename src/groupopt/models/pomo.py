@@ -591,7 +591,6 @@ def _sequential_output(
         heads=heads,
         successor=successor,
         tail_entropy=zeros,
-        gate_probability=zeros,
         action_entropy=zeros,
     )
 

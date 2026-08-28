@@ -128,7 +128,6 @@ def decode_forest_edges(
 
     tail_tensor = torch.stack(tails, dim=1)
     head_tensor = torch.stack(heads, dim=1)
-    zeros = coordinates.new_zeros(batch_size)
     return ConstructionOutput(
         cost=process.objective(state, tail_tensor, head_tensor),
         log_likelihood=torch.stack(selected_log_probabilities, dim=1).sum(dim=1),
@@ -136,7 +135,6 @@ def decode_forest_edges(
         heads=head_tensor,
         successor=process.solution(state),
         tail_entropy=torch.stack(tail_entropies, dim=1).mean(dim=1),
-        gate_probability=zeros,
         action_entropy=torch.stack(action_entropies, dim=1).mean(dim=1),
     )
 

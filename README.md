@@ -2,6 +2,8 @@
 
 GroupOpt 将神经组合优化模型的“依次选下一个点”提升为“在若干条开放局部路径之间选择下一条边”。它不是把训练好的 decoder 原封不动搬过来，也不是替换整个宿主模型；它保留宿主的编码器、Attention/Pointer 评分风格和训练目标，重新定义 decoder 的构造接口，并与宿主模型一起从头训练。
 
+本分支只保存已经在 AM-style、PtrNet、GPN、POMO 上产生一致正向结果的 **Forest-native canonical GroupOpt**。早期 official-AM Adapter、单链 bridge、门控补丁、SYM-NCO 和分布漂移 pilot 不属于当前方法定义，已从本分支移除，仍可在历史分支中恢复。
+
 ## 新范式的逻辑
 
 原生顺序 decoder 在第 `t` 步只维护一条链：
@@ -56,8 +58,7 @@ P(tail, head | Forest)
 src/groupopt/
 ├── framework/
 │   ├── forest_decoder.py  新范式的稳定神经接口与统一 rollout
-│   ├── neural.py          宿主模型、问题过程和输出协议
-│   └── contracts.py       与具体神经网络无关的通用构造协议
+│   └── neural.py          宿主模型、问题过程和输出协议
 ├── problems/
 │   └── tsp_tensor.py      Forest 状态、合法性 mask、转移、闭环与目标函数
 ├── models/
@@ -68,18 +69,38 @@ src/groupopt/
 │   └── native_conditional.py  条件分布摘要与概率工具
 ├── adapters/
 │   └── registry.py        模型注册和配置构建入口
-└── objectives/            REINFORCE 与可选的对称性训练目标
+└── objectives/
+    └── reinforce.py       主实验使用的策略梯度目标
 
 experiments/
 ├── train.py               统一训练、断点和配置记录
+├── train_ptrnet.py        PtrNet 宿主入口
+├── train_gpn.py           GPN 宿主入口
+├── train_pomo.py          POMO 宿主入口
 ├── evaluate.py            固定独立测试集评估并保存逐实例 cost
-├── compare_models.sh      Original 与 Ours 的跨模型主比较
-├── compare_pomo.sh        POMO 多起点训练下的独立泛化比较
-├── compare_pomo_capacity.sh  POMO 等活跃参数单链容量对照
-├── run_pomo_ablations.sh  POMO 的 Forest 调度与信息消融
 ├── validate_comparison.py 数据隔离与非活跃参数检查
-└── validate_native_original.py  原生单链基线等价性检查
+├── validate_native_original.py  原生单链基线等价性检查
+└── paper/
+    ├── protocol_tsp50.json       已完成主表的冻结协议
+    ├── run_main_tsp50.sh         四宿主×两方法×三种子复现入口
+    └── summarize_main_tsp50.py   配对统计与论文主表汇总
 ```
+
+更详细的逐文件说明见 `docs/CODE_LAYOUT.md`，实验边界和结果出处见
+`docs/EXPERIMENT_PROTOCOL.md`。
+
+## 已确认的短程主实验
+
+在同一批 10,000 个 uniform TSP50 实例、三个训练种子上，当前记录为：
+
+| 宿主 | Native Original | Full GroupOpt | 相对改善 |
+|---|---:|---:|---:|
+| AM-style | 6.7494 | 6.3231 | 6.32% |
+| PtrNet | 7.4644 | 6.5935 | 11.67% |
+| GPN | 6.4618 | 6.3320 | 2.01% |
+| POMO | 6.2761 | 6.1344 | 2.26% |
+
+这些数值用于确认跨宿主方向，不等同于最终充分收敛的论文主表。下一阶段将延长训练预算，检查优势是否在收敛后保持。可审计的逐种子摘要保存在 `paper_records/main_tsp50_v1/`。
 
 ## 新模型接入原则
 

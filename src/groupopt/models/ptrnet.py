@@ -199,7 +199,6 @@ class PointerNetwork(nn.Module):
             heads=head_tensor,
             successor=process.solution(state),
             tail_entropy=zeros,
-            gate_probability=zeros,
             action_entropy=zeros,
         )
 
@@ -334,7 +333,6 @@ def _sequential_output(
         heads=heads,
         successor=successor,
         tail_entropy=zeros,
-        gate_probability=zeros,
         action_entropy=zeros,
     )
 

@@ -1,18 +1,15 @@
 #!/usr/bin/env bash
 
-# 复用两个已验证种子，只补第三种子，并统一在同一独立测试集上重评论文主表。
+# 从头复现 TSP50 主表：四个宿主、Original/GroupOpt、三个训练种子。
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
-OUTPUT_ROOT="${OUTPUT_ROOT:-artifacts/paper_main_v1}"
-LEGACY_ROOT="${LEGACY_ROOT:?必须设置前两种子 AM/PtrNet/GPN 产物目录}"
-POMO_ROOT="${POMO_ROOT:?必须设置前两种子 POMO 产物目录}"
-NEW_SEED="${NEW_SEED:-2468}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-artifacts/paper_main_tsp50_v1}"
 TEST_SEED="${TEST_SEED:-20260902}"
 TEST_SIZE="${TEST_SIZE:-10000}"
-SEEDS=(1234 4321 "${NEW_SEED}")
+SEEDS=(1234 4321 2468)
 FAMILIES=(am ptrnet gpn pomo)
 MODES=(native_original native_conditional_free)
 
@@ -24,6 +21,15 @@ mkdir -p "${OUTPUT_ROOT}/logs" "${OUTPUT_ROOT}/summary"
   --output "${OUTPUT_ROOT}/summary/native_original_validation.json" \
   --device cuda
 
+# 官方 POMO 仓库不是项目依赖；若显式提供，则把兼容性验证纳入本次运行。
+if [[ -n "${POMO_OFFICIAL_ROOT:-}" && -n "${POMO_OFFICIAL_CHECKPOINT:-}" ]]; then
+  "${PYTHON_BIN}" experiments/validate_pomo_official.py \
+    --official-root "${POMO_OFFICIAL_ROOT}" \
+    --checkpoint "${POMO_OFFICIAL_CHECKPOINT}" \
+    --output "${OUTPUT_ROOT}/summary/pomo_official_validation.json" \
+    --device cuda
+fi
+
 configure_family() {
   case "$1" in
     am)
@@ -32,6 +38,7 @@ configure_family() {
       BATCH_SIZE=512
       VALIDATION_SIZE=1024
       CHECKPOINT_EVERY=250
+      EVAL_BATCH=64
       MODEL_ARGS=(--heads 8 --encoder-layers 3 --feed-forward-dim 512 --normalization batch)
       ;;
     ptrnet)
@@ -40,6 +47,7 @@ configure_family() {
       BATCH_SIZE=128
       VALIDATION_SIZE=1024
       CHECKPOINT_EVERY=250
+      EVAL_BATCH=64
       MODEL_ARGS=(--encoder-layers 1)
       ;;
     gpn)
@@ -48,6 +56,7 @@ configure_family() {
       BATCH_SIZE=128
       VALIDATION_SIZE=1024
       CHECKPOINT_EVERY=250
+      EVAL_BATCH=64
       MODEL_ARGS=(--encoder-layers 3)
       ;;
     pomo)
@@ -56,6 +65,7 @@ configure_family() {
       BATCH_SIZE=64
       VALIDATION_SIZE=64
       CHECKPOINT_EVERY=100
+      EVAL_BATCH=8
       MODEL_ARGS=(--training-scheme pomo --pomo-size 8 --qkv-dim 16 --heads 8 --encoder-layers 6 --feed-forward-dim 512)
       ;;
     *)
@@ -68,8 +78,9 @@ configure_family() {
 train_one() {
   local family="$1"
   local mode="$2"
+  local seed="$3"
   configure_family "${family}"
-  local run_dir="${OUTPUT_ROOT}/train/${family}_tsp50_${mode}_seed${NEW_SEED}"
+  local run_dir="${OUTPUT_ROOT}/train/${family}_tsp50_${mode}_seed${seed}"
   local checkpoint
   checkpoint="$(printf '%s/checkpoints/step-%06d.pt' "${run_dir}" "${STEPS}")"
   if [[ -f "${checkpoint}" ]]; then
@@ -92,62 +103,41 @@ train_one() {
     --learning-rate 1e-4 \
     --eval-every 100 \
     --checkpoint-every "${CHECKPOINT_EVERY}" \
-    --seed "${NEW_SEED}" \
+    --seed "${seed}" \
     --device cuda
 }
 
-# 同一宿主的 Original 显存很小，可与 Full 并行；宿主之间串行以避免 OOM。
-for family in "${FAMILIES[@]}"; do
-  pids=()
-  for mode in "${MODES[@]}"; do
-    train_one "${family}" "${mode}" \
-      >"${OUTPUT_ROOT}/logs/train_${family}_${mode}_seed${NEW_SEED}.log" 2>&1 &
-    pids+=("$!")
-  done
-  status=0
-  for pid in "${pids[@]}"; do
-    if ! wait "${pid}"; then
-      status=1
-    fi
-  done
-  if [[ "${status}" -ne 0 ]]; then
-    echo "${family} 第三种子训练失败，保留日志和 checkpoint。" >&2
-    exit 10
-  fi
-done
-
-resolve_run() {
-  local family="$1"
-  local mode="$2"
-  local seed="$3"
-  configure_family "${family}"
-  EVAL_BATCH=64
-  if [[ "${family}" == "pomo" ]]; then
-    EVAL_BATCH=8
-  fi
-  if [[ "${seed}" == "${NEW_SEED}" ]]; then
-    RUN_DIR="${OUTPUT_ROOT}/train/${family}_tsp50_${mode}_seed${seed}"
-    return
-  fi
-  if [[ "${family}" == "pomo" ]]; then
-    RUN_DIR="${POMO_ROOT}/pomo_tsp50_${mode}_seed${seed}"
-    return
-  fi
-  if [[ "${mode}" == "native_original" ]]; then
-    RUN_DIR="${LEGACY_ROOT}/${family}_tsp50_native_conditional_fixed_seed${seed}"
-  else
-    RUN_DIR="${LEGACY_ROOT}/${family}_tsp50_${mode}_seed${seed}"
-  fi
-}
-
+# 同一宿主内并行 Original 与 GroupOpt；宿主之间串行，避免超过 24GB 显存。
 for family in "${FAMILIES[@]}"; do
   for seed in "${SEEDS[@]}"; do
+    pids=()
     for mode in "${MODES[@]}"; do
-      resolve_run "${family}" "${mode}" "${seed}"
-      checkpoint="$(printf '%s/checkpoints/step-%06d.pt' "${RUN_DIR}" "${STEPS}")"
+      train_one "${family}" "${mode}" "${seed}" \
+        >"${OUTPUT_ROOT}/logs/train_${family}_${mode}_seed${seed}.log" 2>&1 &
+      pids+=("$!")
+    done
+    status=0
+    for pid in "${pids[@]}"; do
+      if ! wait "${pid}"; then
+        status=1
+      fi
+    done
+    if [[ "${status}" -ne 0 ]]; then
+      echo "${family} seed=${seed} 训练失败；保留日志与 checkpoint。" >&2
+      exit 10
+    fi
+  done
+done
+
+for family in "${FAMILIES[@]}"; do
+  configure_family "${family}"
+  for seed in "${SEEDS[@]}"; do
+    for mode in "${MODES[@]}"; do
+      run_dir="${OUTPUT_ROOT}/train/${family}_tsp50_${mode}_seed${seed}"
+      checkpoint="$(printf '%s/checkpoints/step-%06d.pt' "${run_dir}" "${STEPS}")"
       evaluation_dir="${OUTPUT_ROOT}/eval/iid_tsp50_seed${TEST_SEED}/${family}/${mode}/seed${seed}"
-      if [[ ! -f "${checkpoint}" || ! -f "${RUN_DIR}/config.json" ]]; then
-        echo "缺少 checkpoint 或配置：${RUN_DIR}" >&2
+      if [[ ! -f "${checkpoint}" || ! -f "${run_dir}/config.json" ]]; then
+        echo "缺少 checkpoint 或配置：${run_dir}" >&2
         exit 20
       fi
       if [[ -f "${evaluation_dir}/summary.json" && -f "${evaluation_dir}/costs.pt" ]]; then
@@ -155,7 +145,7 @@ for family in "${FAMILIES[@]}"; do
       fi
       "${PYTHON_BIN}" experiments/evaluate.py \
         --checkpoint "${checkpoint}" \
-        --config "${RUN_DIR}/config.json" \
+        --config "${run_dir}/config.json" \
         --base-mode-override "${mode}" \
         --output-dir "${evaluation_dir}" \
         --test-size "${TEST_SIZE}" \

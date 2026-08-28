@@ -9,8 +9,6 @@ from torch import nn
 
 from groupopt.models.am import AttentionModel
 from groupopt.models.gpn import GraphPointerNetwork
-from groupopt.models.official_am import OfficialAttentionModelGroupOpt
-from groupopt.models.official_gpn import OfficialGraphPointerNetworkGroupOpt
 from groupopt.models.pomo import POMOModel
 from groupopt.models.ptrnet import PointerNetwork
 
@@ -79,30 +77,11 @@ def _pomo(config: Mapping[str, Any]) -> nn.Module:
     )
 
 
-def _official_am(config: Mapping[str, Any]) -> nn.Module:
-    return OfficialAttentionModelGroupOpt(
-        official_root=str(config["official_am_root"]),
-        embedding_dim=int(config["embedding_dim"]),
-        n_heads=int(config["heads"]),
-        n_encoder_layers=int(config["encoder_layers"]),
-        normalization=str(config["normalization"]),
-    )
-
-
-def _official_gpn(config: Mapping[str, Any]) -> nn.Module:
-    return OfficialGraphPointerNetworkGroupOpt(
-        official_root=str(config["official_gpn_root"]),
-        embedding_dim=int(config["embedding_dim"]),
-    )
-
-
 model_registry = ModelRegistry()
 model_registry.register("am", _am)
 model_registry.register("ptrnet", _ptrnet)
 model_registry.register("gpn", _gpn)
 model_registry.register("pomo", _pomo)
-model_registry.register("official_am", _official_am)
-model_registry.register("official_gpn", _official_gpn)
 
 
 def build_model(config: Mapping[str, Any]) -> nn.Module:
