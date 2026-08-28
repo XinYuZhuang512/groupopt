@@ -5,6 +5,12 @@
 
 from groupopt.framework.contracts import ConstructionProcess
 from groupopt.framework.engine import construct
+from groupopt.framework.forest_decoder import (
+    CallableForestAwareDecoder,
+    ForestAwareDecoder,
+    ForestHeadProposal,
+    decode_forest_edges,
+)
 from groupopt.framework.types import (
     BaseSelection,
     ConstructionAction,
@@ -14,9 +20,13 @@ from groupopt.framework.types import (
 
 __all__ = [
     "BaseSelection",
+    "CallableForestAwareDecoder",
     "ConstructionAction",
     "ConstructionProcess",
     "ConstructionTrace",
     "DecodeStrategy",
+    "ForestAwareDecoder",
+    "ForestHeadProposal",
     "construct",
+    "decode_forest_edges",
 ]

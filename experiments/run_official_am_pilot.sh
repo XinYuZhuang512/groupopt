@@ -18,7 +18,9 @@ EVAL_STEPS="${EVAL_STEPS:-${STEPS}}"
 cd "${PROJECT_DIR}"
 export PYTHONPATH="${PROJECT_DIR}/src${PYTHONPATH:+:${PYTHONPATH}}"
 
-for mode in official_original native_conditional_free; do
+MODES="${MODES:-official_original official_conditional_fixed official_forest_fixed native_conditional_free}"
+
+for mode in ${MODES}; do
   run_dir="${OUTPUT_ROOT}/train/${mode}_seed${SEED}"
   final_checkpoint="$(printf '%s/checkpoints/step-%06d.pt' "${run_dir}" "${STEPS}")"
   resume_args=()

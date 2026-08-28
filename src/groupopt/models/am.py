@@ -14,10 +14,14 @@ from typing import Literal
 import torch
 from torch import Tensor, nn
 
+from groupopt.framework.forest_decoder import (
+    CallableForestAwareDecoder,
+    ForestHeadProposal,
+    decode_forest_edges,
+)
 from groupopt.framework.neural import BatchedConstructionProcess, ConstructionOutput
 from groupopt.models.native_conditional import (
     categorical_entropy,
-    joint_action_entropy,
     masked_conditional_log_probabilities,
     native_head_summary,
 )
@@ -25,10 +29,17 @@ from groupopt.problems.tsp_tensor import BatchedTSPConstruction, BatchedTSPState
 
 DecodeType = Literal["greedy", "sampling"]
 BaseMode = Literal[
+    "native_original",
     "native_conditional_fixed",
     "native_conditional_free",
+    "native_capacity_single_chain",
 ]
-BASE_MODES = ("native_conditional_fixed", "native_conditional_free")
+BASE_MODES = (
+    "native_original",
+    "native_conditional_fixed",
+    "native_conditional_free",
+    "native_capacity_single_chain",
+)
 
 
 AttentionModelOutput = ConstructionOutput
@@ -116,9 +127,7 @@ class AttentionModel(nn.Module):
         feed_forward_dim: int = 512,
         tanh_clipping: float = 10.0,
         normalization: Literal["batch", "layer"] = "batch",
-        construction_process: BatchedConstructionProcess[
-            Tensor, BatchedTSPState
-        ] | None = None,
+        construction_process: BatchedConstructionProcess[Tensor, BatchedTSPState] | None = None,
     ) -> None:
         super().__init__()
         if embedding_dim % n_heads != 0:
@@ -176,8 +185,21 @@ class AttentionModel(nn.Module):
             return self._with_symmetry_embeddings(
                 output, node_embeddings, return_symmetry_embeddings
             )
+        if base_mode == "native_capacity_single_chain":
+            output = self._decode_native_capacity_single_chain(
+                coordinates,
+                node_embeddings,
+                graph_embedding,
+                decode_type,
+                temperature,
+                generator,
+                anchor,
+            )
+            return self._with_symmetry_embeddings(
+                output, node_embeddings, return_symmetry_embeddings
+            )
 
-        # Original：遵循锚定的原生构造顺序，由 AM 原生 head decoder 选择另一端点。
+        # native_original 与历史 fixed 名称共用同一条单链实现；后者仅为旧 checkpoint 兼容。
         process = self.construction_process
         state = process.initial_state(coordinates)
         graph_context = self.project_graph(graph_embedding)
@@ -235,9 +257,7 @@ class AttentionModel(nn.Module):
             gate_probability=zeros,
             action_entropy=zeros,
         )
-        return self._with_symmetry_embeddings(
-            output, node_embeddings, return_symmetry_embeddings
-        )
+        return self._with_symmetry_embeddings(output, node_embeddings, return_symmetry_embeddings)
 
     def _with_symmetry_embeddings(
         self,
@@ -258,27 +278,18 @@ class AttentionModel(nn.Module):
         temperature: float,
         generator: torch.Generator | None,
     ) -> AttentionModelOutput:
-        """在不改变原生条件 head 策略的前提下选择 tail。"""
+        """用 AM 风格实现完整的 Forest-aware head/tail 接口。"""
         process = self.construction_process
-        state = process.initial_state(coordinates)
         graph_context = self.project_graph(graph_embedding)
         key, value, logit_key = self.project_nodes(node_embeddings).chunk(3, dim=-1)
         key = self._split_heads(key)
         value = self._split_heads(value)
         distances = torch.cdist(coordinates, coordinates)
         last_head_embedding = self.first_step_context.unsqueeze(0).expand(
-            state.batch_size, self.embedding_dim
+            coordinates.size(0), self.embedding_dim
         )
-        batch_index = torch.arange(state.batch_size, device=coordinates.device)
 
-        tails: list[Tensor] = []
-        heads: list[Tensor] = []
-        selected_log_probabilities: list[Tensor] = []
-        tail_entropies: list[Tensor] = []
-        action_entropies: list[Tensor] = []
-
-        while not process.is_terminal(state):
-            pair_mask = process.action_mask(state)
+        def score_heads(state: BatchedTSPState, pair_mask: Tensor) -> ForestHeadProposal:
             expanded_graph = graph_context.unsqueeze(1).expand(
                 state.batch_size, state.n, self.embedding_dim
             )
@@ -295,10 +306,16 @@ class AttentionModel(nn.Module):
             )
             head_log_p = masked_conditional_log_probabilities(head_logits, pair_mask, temperature)
             summary = native_head_summary(head_log_p, distances).detach()
+            return ForestHeadProposal(head_log_p, summary)
 
+        def score_tails(
+            state: BatchedTSPState,
+            proposal: ForestHeadProposal,
+            tail_mask: Tensor,
+        ) -> Tensor:
             state_tail_nodes = self._state_aware_tail_embeddings(
                 node_embeddings, state
-            ) + self.project_native_head_summary(summary)
+            ) + self.project_native_head_summary(proposal.features)
             tail_key, tail_value, tail_logit_key = self.project_state_tail_nodes(
                 state_tail_nodes
             ).chunk(3, dim=-1)
@@ -310,20 +327,116 @@ class AttentionModel(nn.Module):
                 self._split_heads(tail_key),
                 self._split_heads(tail_value),
                 tail_logit_key,
-                process.base_mask(state),
+                tail_mask,
                 self.project_tail_glimpse,
             )
-            tail_log_p = torch.log_softmax(tail_logits / temperature, dim=-1)
-            selected_tail = _select(tail_log_p, decode_type, generator)
-            selected_head_log_p = head_log_p[batch_index, selected_tail]
+            return torch.log_softmax(tail_logits / temperature, dim=-1)
+
+        def update_context(selected_tail: Tensor, selected_head: Tensor) -> None:
+            del selected_tail
+            nonlocal last_head_embedding
+            last_head_embedding = node_embeddings.gather(
+                1,
+                selected_head[:, None, None].expand(coordinates.size(0), 1, self.embedding_dim),
+            ).squeeze(1)
+
+        decoder = CallableForestAwareDecoder[BatchedTSPState](
+            head_scorer=score_heads,
+            tail_scorer=score_tails,
+            context_updater=update_context,
+        )
+        return decode_forest_edges(
+            coordinates,
+            process,
+            decoder,
+            decode_type,
+            generator,
+        )
+
+    def _decode_native_capacity_single_chain(
+        self,
+        coordinates: Tensor,
+        node_embeddings: Tensor,
+        graph_embedding: Tensor,
+        decode_type: DecodeType,
+        temperature: float,
+        generator: torch.Generator | None,
+        anchor: int,
+    ) -> AttentionModelOutput:
+        """激活与 Free 相同的参数，但强制沿一条链顺序构造。
+
+        这组对照把 Tail Selector 的完整 AM 风格注意力改作第二个 head
+        评分通道，因此所有可学习参数都参与反向传播；tail 仍严格固定为
+        上一步的 head。Free 若优于本组，便不能仅用新增参数或额外状态解释。
+        """
+        process = self.construction_process
+        state = process.initial_state(coordinates)
+        graph_context = self.project_graph(graph_embedding)
+        key, value, logit_key = self.project_nodes(node_embeddings).chunk(3, dim=-1)
+        key = self._split_heads(key)
+        value = self._split_heads(value)
+        distances = torch.cdist(coordinates, coordinates)
+        last_head_embedding = self.first_step_context.unsqueeze(0).expand(
+            state.batch_size, self.embedding_dim
+        )
+        batch_index = torch.arange(state.batch_size, device=coordinates.device)
+
+        tails: list[Tensor] = []
+        heads: list[Tensor] = []
+        selected_log_probabilities: list[Tensor] = []
+        action_entropies: list[Tensor] = []
+
+        while not process.is_terminal(state):
+            selected_tail = process.fixed_base(state, anchor)
+            pair_mask = process.action_mask(state)
+            expanded_graph = graph_context.unsqueeze(1).expand(
+                state.batch_size, state.n, self.embedding_dim
+            )
+            all_head_queries = self.project_head_context(
+                torch.cat((expanded_graph, node_embeddings), dim=-1)
+            )
+            all_head_logits = self._attention_logits(
+                all_head_queries,
+                key,
+                value,
+                logit_key,
+                pair_mask,
+                self.project_head_glimpse,
+            )
+            all_head_log_p = masked_conditional_log_probabilities(
+                all_head_logits, pair_mask, temperature
+            )
+            summary = native_head_summary(all_head_log_p, distances).detach()
+
+            capacity_nodes = self._state_aware_tail_embeddings(
+                node_embeddings, state
+            ) + self.project_native_head_summary(summary)
+            capacity_key, capacity_value, capacity_logit_key = self.project_state_tail_nodes(
+                capacity_nodes
+            ).chunk(3, dim=-1)
+            capacity_query = self.project_tail_context(
+                torch.cat((graph_context, last_head_embedding), dim=-1)
+            )
+            selected_mask = process.representative_mask(state, selected_tail)
+            capacity_logits = self._attention_logits(
+                capacity_query,
+                self._split_heads(capacity_key),
+                self._split_heads(capacity_value),
+                capacity_logit_key,
+                selected_mask,
+                self.project_tail_glimpse,
+            )
+            native_logits = all_head_logits[batch_index, selected_tail]
+            selected_head_log_p = torch.log_softmax(
+                (native_logits + capacity_logits) / (sqrt(2.0) * temperature),
+                dim=-1,
+            )
             selected_head = _select(selected_head_log_p, decode_type, generator)
 
             selected_log_probabilities.append(
-                tail_log_p.gather(1, selected_tail[:, None]).squeeze(1)
-                + selected_head_log_p.gather(1, selected_head[:, None]).squeeze(1)
+                selected_head_log_p.gather(1, selected_head[:, None]).squeeze(1)
             )
-            tail_entropies.append(categorical_entropy(tail_log_p))
-            action_entropies.append(joint_action_entropy(tail_log_p, head_log_p))
+            action_entropies.append(categorical_entropy(selected_head_log_p))
             tails.append(selected_tail)
             heads.append(selected_head)
             state = process.transition(state, selected_tail, selected_head)
@@ -345,7 +458,7 @@ class AttentionModel(nn.Module):
             tails=tail_tensor,
             heads=head_tensor,
             successor=process.solution(state),
-            tail_entropy=torch.stack(tail_entropies, dim=1).mean(dim=1),
+            tail_entropy=zeros,
             gate_probability=zeros,
             action_entropy=torch.stack(action_entropies, dim=1).mean(dim=1),
         )
@@ -360,9 +473,7 @@ class AttentionModel(nn.Module):
         路径由起始端点、路径顶点平均表示和归一化规模概括。它们与候选 tail 自身的
         表示一起，使评分器能够感知两个端点以及当前分量的几何结构。
         """
-        return node_embeddings + self.project_tail_state(
-            state.path_state_features(node_embeddings)
-        )
+        return node_embeddings + self.project_tail_state(state.path_state_features(node_embeddings))
 
     def _split_heads(self, values: Tensor) -> Tensor:
         batch, nodes, _ = values.shape

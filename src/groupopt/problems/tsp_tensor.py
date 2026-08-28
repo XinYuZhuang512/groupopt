@@ -128,6 +128,23 @@ class BatchedTSPState:
         结果拼接分量平均表示、唯一路径起点（无前驱的顶点）的表示，以及归一化路径规模。
         这些是供可学习 base 选择使用、且与模型无关的状态信息。
         """
+        forest_features = self.forest_decoder_features(node_embeddings)
+        embedding_dim = node_embeddings.size(-1)
+        return torch.cat(
+            (
+                forest_features[:, :, : 2 * embedding_dim],
+                forest_features[:, :, -1:],
+            ),
+            dim=-1,
+        )
+
+    def forest_decoder_features(self, node_embeddings: Tensor) -> Tensor:
+        """返回供 Forest 条件 decoder 使用的双端路径状态。
+
+        每个节点获得其分量平均表示、路径起点、路径终点和归一化规模。合法 tail
+        本身是路径终点，合法 head 本身是路径起点；同时提供另一端点，使 decoder
+        在比较候选连接时能看到两侧局部路径，而不只看到静态节点编码。
+        """
         if node_embeddings.ndim != 3 or node_embeddings.shape[:2] != (
             self.batch_size,
             self.n,
@@ -153,8 +170,18 @@ class BatchedTSPState:
             1, embedding_index, start_source
         )
         path_start = path_start_by_label.gather(1, embedding_index)
+
+        is_path_end = self.successor < 0
+        end_source = node_embeddings * is_path_end.unsqueeze(-1)
+        path_end_by_label = torch.zeros_like(node_embeddings).scatter_add(
+            1, embedding_index, end_source
+        )
+        path_end = path_end_by_label.gather(1, embedding_index)
+
         normalized_size = component_size / self.n
-        return torch.cat((component_mean, path_start, normalized_size), dim=-1)
+        return torch.cat(
+            (component_mean, path_start, path_end, normalized_size), dim=-1
+        )
 
     def update(self, selected_tail: Tensor, selected_head: Tensor) -> BatchedTSPState:
         """为批次中的每个样本加入一条合法边，并返回新状态。"""

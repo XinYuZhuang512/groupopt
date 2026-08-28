@@ -2,6 +2,7 @@
 
 from groupopt.models.am import AttentionModel, AttentionModelOutput
 from groupopt.models.gpn import GraphPointerNetwork, GraphPointerNetworkOutput
+from groupopt.models.pomo import POMOModel
 from groupopt.models.ptrnet import PointerNetwork, PointerNetworkOutput
 
 __all__ = [
@@ -9,6 +10,7 @@ __all__ = [
     "AttentionModelOutput",
     "GraphPointerNetwork",
     "GraphPointerNetworkOutput",
+    "POMOModel",
     "PointerNetwork",
     "PointerNetworkOutput",
 ]

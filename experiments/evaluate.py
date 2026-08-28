@@ -17,11 +17,43 @@ from groupopt.problems.distributions import TSP_DISTRIBUTIONS, generate_tsp_coor
 
 
 def load_model(
-    checkpoint_path: Path, config: dict[str, Any], device: torch.device
+    checkpoint_path: Path,
+    config: dict[str, Any],
+    device: torch.device,
+    evaluation_mode: str,
 ) -> tuple[nn.Module, dict[str, Any]]:
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     model = build_model(config).to(device)
-    model.load_state_dict(checkpoint["model"])
+    incompatible = model.load_state_dict(checkpoint["model"], strict=False)
+    allowed_missing_prefixes = ["project_hybrid_in.", "project_hybrid_out."]
+    # 早期 checkpoint 曾保存两个现已删除、且不参与 native conditional
+    # 前向计算的诊断模块。只放行这两个精确前缀，其他未知参数仍视为错误。
+    allowed_unexpected_prefixes = ["tail_gate.", "joint_action_scorer."]
+    allowed_missing_names: set[str] = set()
+    if evaluation_mode != "official_capacity_single_chain":
+        # 容量对照晚于 edge-native checkpoint 加入，且只在容量模式使用。
+        allowed_missing_names.add("capacity_extra")
+        allowed_missing_prefixes.extend(["project_capacity_in.", "project_capacity_out."])
+    if evaluation_mode == "official_original":
+        # Original 前向只调用官方 native 模型。旧 checkpoint 可能早于
+        # GroupOpt/容量对照参数的加入；只要 native 参数完整，就可安全评估。
+        unsafe_missing = [name for name in incompatible.missing_keys if name.startswith("native.")]
+    else:
+        unsafe_missing = [
+            name
+            for name in incompatible.missing_keys
+            if name not in allowed_missing_names
+            and not name.startswith(tuple(allowed_missing_prefixes))
+        ]
+    unsafe_unexpected = [
+        name
+        for name in incompatible.unexpected_keys
+        if not name.startswith(tuple(allowed_unexpected_prefixes))
+    ]
+    if unsafe_missing or unsafe_unexpected:
+        raise RuntimeError(
+            f"checkpoint/model mismatch: missing={unsafe_missing}, unexpected={unsafe_unexpected}"
+        )
     model.eval()
     return model, checkpoint
 
@@ -36,8 +68,9 @@ def evaluate(args: argparse.Namespace) -> None:
     if int(config["graph_size"]) != args.graph_size:
         raise ValueError("test graph size differs from checkpoint training graph size")
 
+    evaluation_mode = args.base_mode_override or config["base_mode"]
     device = resolve_device(args.device)
-    model, checkpoint = load_model(checkpoint_path, config, device)
+    model, checkpoint = load_model(checkpoint_path, config, device, evaluation_mode)
     coordinates = generate_tsp_coordinates(
         args.test_size,
         args.graph_size,
@@ -52,16 +85,21 @@ def evaluate(args: argparse.Namespace) -> None:
             output = model(
                 batch,
                 decode_type="greedy",
-                base_mode=config["base_mode"],
+                base_mode=evaluation_mode,
             )
-            costs.append(output.cost.cpu())
+            best_rollout_cost = getattr(model, "best_rollout_cost", None)
+            evaluated_cost = (
+                best_rollout_cost(output) if best_rollout_cost is not None else output.cost
+            )
+            costs.append(evaluated_cost.cpu())
     cost_tensor = torch.cat(costs)
     if cost_tensor.shape != (args.test_size,) or not torch.isfinite(cost_tensor).all():
         raise RuntimeError("independent test produced invalid costs")
 
     standard_deviation = cost_tensor.std(unbiased=True).item()
     summary = {
-        "base_mode": config["base_mode"],
+        "base_mode": evaluation_mode,
+        "training_base_mode": config["base_mode"],
         "best_validation_cost": float(checkpoint["best_cost"]),
         "checkpoint": str(checkpoint_path),
         "checkpoint_step": int(checkpoint["step"]),
@@ -124,6 +162,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--graph-size", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=512)
     parser.add_argument("--device", default="auto")
+    parser.add_argument(
+        "--base-mode-override",
+        help="用同一 checkpoint 的另一构造模式评估，供严格嵌套对照使用",
+    )
     arguments = parser.parse_args()
     if min(arguments.test_size, arguments.graph_size, arguments.batch_size) < 1:
         parser.error("test size, graph size, and batch size must be positive")

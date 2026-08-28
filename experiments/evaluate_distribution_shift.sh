@@ -10,7 +10,7 @@ TEST_SIZE="${TEST_SIZE:-10000}"
 STEPS="${STEPS:-2000}"
 TRAIN_SEEDS=(${TRAIN_SEEDS:-1234 4321})
 FAMILIES=(${FAMILIES:-am ptrnet gpn})
-MODES=(native_conditional_fixed native_conditional_free)
+MODES=(native_original native_conditional_free)
 DISTRIBUTIONS=(
   uniform
   clustered

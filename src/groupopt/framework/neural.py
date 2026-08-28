@@ -24,6 +24,7 @@ class ConstructionOutput:
     gate_probability: Tensor
     action_entropy: Tensor
     symmetry_node_embeddings: Tensor | None = None
+    interface_regularization: Tensor | None = None
 
 
 @runtime_checkable

@@ -45,7 +45,7 @@ def build_models() -> dict[str, nn.Module]:
 
 def groupopt_is_inactive_for_original(name: str, model: nn.Module, data: torch.Tensor) -> bool:
     model.zero_grad(set_to_none=True)
-    output = model(data, decode_type="sampling", base_mode="native_conditional_fixed")
+    output = model(data, decode_type="sampling", base_mode="native_original")
     (-output.log_likelihood.mean()).backward()
     prefixes = GROUP_OPT_PREFIXES[name]
     selected = [
@@ -80,7 +80,7 @@ def main() -> None:
     models = build_models()
     result = {
         "modes": {
-            "original": "native_conditional_fixed",
+            "original": "native_original",
             "ours": "native_conditional_free",
         },
         "same_model_class_and_parameters": True,
