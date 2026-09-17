@@ -18,5 +18,6 @@ results/
 runs/
 wandb/
 *.pt
+!paper_records/formal_2026_09/**/costs.pt
 *.pth
 *.ckpt
