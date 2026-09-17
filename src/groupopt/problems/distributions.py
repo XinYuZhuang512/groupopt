@@ -75,6 +75,41 @@ def generate_tsp_coordinates(
     return coordinates.to(torch.float32)
 
 
+def generate_cvrp_instances(
+    sample_count: int,
+    customer_count: int,
+    capacity: int,
+    generator: torch.Generator,
+    device: torch.device | str = "cpu",
+) -> Tensor:
+    """生成 ``[客户坐标, 需求, 仓库坐标]`` 格式的标准 uniform CVRP 实例。"""
+    if sample_count < 1 or customer_count < 2:
+        raise ValueError("sample_count must be positive and customer_count at least two")
+    if capacity < 9:
+        raise ValueError("capacity must accommodate the maximum demand 9")
+    target_device = torch.device(device)
+    depot = torch.rand(
+        sample_count, 1, 2, device=target_device, generator=generator
+    )
+    customers = torch.rand(
+        sample_count,
+        customer_count,
+        2,
+        device=target_device,
+        generator=generator,
+    )
+    integer_demand = torch.randint(
+        1,
+        10,
+        (sample_count, customer_count, 1),
+        device=target_device,
+        generator=generator,
+    )
+    demand = integer_demand.to(customers.dtype) / float(capacity)
+    repeated_depot = depot.expand(sample_count, customer_count, 2)
+    return torch.cat((customers, demand, repeated_depot), dim=-1)
+
+
 def _clustered(
     shape: tuple[int, int, int],
     cluster_count: int,

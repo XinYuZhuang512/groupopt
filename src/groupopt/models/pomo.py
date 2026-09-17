@@ -37,6 +37,7 @@ BaseMode = Literal[
     "native_free_no_head_summary",
     "native_free_no_path_state",
     "native_free_no_last_head",
+    "native_random_tail",
 ]
 BASE_MODES = (
     "native_original",
@@ -46,6 +47,7 @@ BASE_MODES = (
     "native_free_no_head_summary",
     "native_free_no_path_state",
     "native_free_no_last_head",
+    "native_random_tail",
 )
 
 
@@ -172,6 +174,7 @@ class POMOModel(nn.Module):
             use_head_summary=base_mode != "native_free_no_head_summary",
             use_path_state=base_mode != "native_free_no_path_state",
             use_last_head=base_mode != "native_free_no_last_head",
+            random_tail=base_mode == "native_random_tail",
         )
 
     def best_rollout_cost(self, output: ConstructionOutput) -> Tensor:
@@ -294,6 +297,7 @@ class POMOModel(nn.Module):
         use_head_summary: bool = True,
         use_path_state: bool = True,
         use_last_head: bool = True,
+        random_tail: bool = False,
     ) -> ConstructionOutput:
         first_embedding = _gather_nodes(node_embeddings, anchors)
         last_head_embedding = first_embedding
@@ -319,6 +323,10 @@ class POMOModel(nn.Module):
                 forced = node_embeddings.new_full(tail_mask.shape, -torch.inf)
                 forced.scatter_(1, anchors[:, None], 0.0)
                 return forced
+            if random_tail:
+                return _random_forest_tail_log_probabilities(
+                    tail_mask, node_embeddings.dtype, generator
+                )
             if fixed_tail:
                 return _deterministic_forest_tail_log_probabilities(
                     state, tail_mask, node_embeddings.dtype
@@ -570,6 +578,21 @@ def _deterministic_forest_tail_log_probabilities(
         raise ValueError("a nonterminal Forest state has no legal tail")
     log_p = torch.full(tail_mask.shape, -torch.inf, dtype=dtype, device=tail_mask.device)
     log_p.scatter_(1, selected[:, None], 0.0)
+    return log_p
+
+
+def _random_forest_tail_log_probabilities(
+    tail_mask: Tensor,
+    dtype: torch.dtype,
+    generator: torch.Generator | None,
+) -> Tensor:
+    """从合法开放端点中均匀抽取一个、且使实验随机种子可复现。"""
+    legal_weights = (~tail_mask).to(dtype)
+    if (legal_weights.sum(dim=1) == 0).any():
+        raise ValueError("a nonterminal Forest state has no legal tail")
+    selected = torch.multinomial(legal_weights, 1, generator=generator)
+    log_p = torch.full(tail_mask.shape, -torch.inf, dtype=dtype, device=tail_mask.device)
+    log_p.scatter_(1, selected, 0.0)
     return log_p
 
 

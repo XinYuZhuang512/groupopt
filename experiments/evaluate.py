@@ -13,7 +13,36 @@ import torch
 from torch import nn
 
 from groupopt.adapters import build_model
-from groupopt.problems.distributions import TSP_DISTRIBUTIONS, generate_tsp_coordinates
+from groupopt.problems.distributions import (
+    TSP_DISTRIBUTIONS,
+    generate_cvrp_instances,
+    generate_tsp_coordinates,
+)
+
+
+def generate_test_instances(
+    config: dict[str, Any],
+    sample_count: int,
+    graph_size: int,
+    distribution: str,
+    seed: int,
+) -> torch.Tensor:
+    """按 checkpoint 中冻结的问题定义生成独立 CPU 测试集。"""
+    problem = str(config.get("problem", "tsp"))
+    if problem in {"tsp", "min_m_ccp"}:
+        return generate_tsp_coordinates(sample_count, graph_size, distribution, seed)
+    if problem == "cvrp":
+        if distribution != "uniform":
+            raise ValueError("CVRP pilot currently supports only uniform coordinates")
+        generator = torch.Generator(device="cpu").manual_seed(seed)
+        return generate_cvrp_instances(
+            sample_count,
+            graph_size,
+            int(config["capacity"]),
+            generator,
+            "cpu",
+        )
+    raise ValueError(f"unknown problem in checkpoint: {problem}")
 
 
 def load_model(
@@ -49,13 +78,18 @@ def evaluate(args: argparse.Namespace) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     config = json.loads(config_path.read_text(encoding="utf-8"))
-    if int(config["graph_size"]) != args.graph_size:
-        raise ValueError("test graph size differs from checkpoint training graph size")
+    training_graph_size = int(config["graph_size"])
+    if training_graph_size != args.graph_size and not args.allow_size_transfer:
+        raise ValueError(
+            "test graph size differs from checkpoint training graph size; "
+            "pass --allow-size-transfer only for the explicit zero-shot size-transfer protocol"
+        )
 
     evaluation_mode = args.base_mode_override or config["base_mode"]
     device = resolve_device(args.device)
     model, checkpoint = load_model(checkpoint_path, config, device, evaluation_mode)
-    coordinates = generate_tsp_coordinates(
+    coordinates = generate_test_instances(
+        config,
         args.test_size,
         args.graph_size,
         args.distribution,
@@ -63,6 +97,7 @@ def evaluate(args: argparse.Namespace) -> None:
     )
 
     costs: list[torch.Tensor] = []
+    action_generator = torch.Generator(device=device).manual_seed(args.test_seed + 1)
     with torch.no_grad():
         for start in range(0, args.test_size, args.batch_size):
             batch = coordinates[start : start + args.batch_size].to(device)
@@ -70,6 +105,7 @@ def evaluate(args: argparse.Namespace) -> None:
                 batch,
                 decode_type="greedy",
                 base_mode=evaluation_mode,
+                generator=action_generator,
             )
             best_rollout_cost = getattr(model, "best_rollout_cost", None)
             evaluated_cost = (
@@ -89,15 +125,23 @@ def evaluate(args: argparse.Namespace) -> None:
         "checkpoint_step": int(checkpoint["step"]),
         "distribution": args.distribution,
         "graph_size": args.graph_size,
+        "training_graph_size": training_graph_size,
+        "is_size_transfer": training_graph_size != args.graph_size,
         "mean_cost": cost_tensor.mean().item(),
         "model": config.get("model", "am"),
+        "problem": config.get("problem", "tsp"),
         "standard_deviation": standard_deviation,
         "standard_error": standard_deviation / math.sqrt(args.test_size),
         "test_seed": args.test_seed,
+        "evaluation_action_seed": args.test_seed + 1,
         "test_size": args.test_size,
         "train_seed": int(config["seed"]),
         "training_scheme": config.get("training_scheme", "reinforce"),
     }
+    if "cycles" in config:
+        summary["cycles"] = int(config["cycles"])
+    if "capacity" in config:
+        summary["capacity"] = int(config["capacity"])
     atomic_torch_save(
         {
             "costs": cost_tensor,
@@ -142,6 +186,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--test-seed", type=int, default=20260805)
     parser.add_argument("--distribution", choices=TSP_DISTRIBUTIONS, default="uniform")
     parser.add_argument("--graph-size", type=int, default=50)
+    parser.add_argument(
+        "--allow-size-transfer",
+        action="store_true",
+        help="明确允许训练规模与测试规模不同，仅用于 zero-shot 规模迁移实验",
+    )
     parser.add_argument("--batch-size", type=int, default=512)
     parser.add_argument("--device", default="auto")
     parser.add_argument(

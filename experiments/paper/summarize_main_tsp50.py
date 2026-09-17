@@ -48,11 +48,12 @@ def main() -> None:
     parser.add_argument("--families", nargs="+", required=True)
     parser.add_argument("--seeds", nargs="+", type=int, required=True)
     parser.add_argument("--test-seed", type=int, required=True)
+    parser.add_argument("--experiment-id", default="paper_main_tsp50_v1")
     args = parser.parse_args()
 
     rows: list[dict[str, object]] = []
     result: dict[str, object] = {
-        "experiment": "paper_main_tsp50_v1",
+        "experiment": args.experiment_id,
         "test_seed": args.test_seed,
         "lower_cost_is_better": True,
         "families": {},

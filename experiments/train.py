@@ -15,6 +15,8 @@ from torch import nn
 
 from groupopt.models.am import AttentionModel
 from groupopt.objectives import reinforce_loss
+from groupopt.problems import BatchedCVRPConstruction, BatchedMCycleCoverConstruction
+from groupopt.problems.distributions import generate_cvrp_instances
 
 # 这里只保留论文有效范式及其必要对照，不再接纳历史 Adapter/pilot 名称。
 BASE_MODES = (
@@ -26,12 +28,19 @@ BASE_MODES = (
     "native_free_no_head_summary",
     "native_free_no_path_state",
     "native_free_no_last_head",
+    "native_random_tail",
 )
 
 
-def evaluate(model: nn.Module, coordinates: torch.Tensor, base_mode: str) -> float:
+def evaluate(
+    model: nn.Module,
+    coordinates: torch.Tensor,
+    base_mode: str,
+    generator_seed: int,
+) -> float:
     """在固定验证集上执行确定性 greedy 评估。"""
     model.eval()
+    action_generator = torch.Generator(device=coordinates.device).manual_seed(generator_seed)
     with torch.no_grad():
         best_rollout_cost = getattr(model, "best_rollout_cost", None)
         if best_rollout_cost is not None:
@@ -42,21 +51,62 @@ def evaluate(model: nn.Module, coordinates: torch.Tensor, base_mode: str) -> flo
                     coordinates[start : start + chunk_size],
                     decode_type="greedy",
                     base_mode=base_mode,
+                    generator=action_generator,
                 )
                 costs.append(best_rollout_cost(output))
             return torch.cat(costs).mean().item()
-        output = model(coordinates, decode_type="greedy", base_mode=base_mode)
+        output = model(
+            coordinates,
+            decode_type="greedy",
+            base_mode=base_mode,
+            generator=action_generator,
+        )
     return output.cost.mean().item()
 
 
 def build_am_model(args: argparse.Namespace) -> nn.Module:
+    if args.problem == "tsp":
+        input_dim = 2
+        construction_process = None
+    elif args.problem == "cvrp":
+        input_dim = 5
+        construction_process = BatchedCVRPConstruction()
+    elif args.problem == "min_m_ccp":
+        input_dim = 2
+        construction_process = BatchedMCycleCoverConstruction(args.cycles)
+    else:
+        raise ValueError(f"unknown problem: {args.problem}")
     return AttentionModel(
+        input_dim=input_dim,
         embedding_dim=args.embedding_dim,
         n_heads=args.heads,
         n_encoder_layers=args.encoder_layers,
         feed_forward_dim=args.feed_forward_dim,
         normalization=args.normalization,
+        construction_process=construction_process,
     )
+
+
+def generate_instances(
+    args: argparse.Namespace,
+    sample_count: int,
+    device: torch.device,
+    generator: torch.Generator,
+) -> torch.Tensor:
+    """生成训练或验证实例，且不接触全局随机数状态。"""
+    if args.problem in {"tsp", "min_m_ccp"}:
+        return torch.rand(
+            sample_count,
+            args.graph_size,
+            2,
+            device=device,
+            generator=generator,
+        )
+    if args.problem == "cvrp":
+        return generate_cvrp_instances(
+            sample_count, args.graph_size, args.capacity, generator, device
+        )
+    raise ValueError(f"unknown problem: {args.problem}")
 
 
 def run(
@@ -85,12 +135,8 @@ def run(
     data_generator = torch.Generator(device=device).manual_seed(args.seed + 1)
     validation_generator = torch.Generator(device=device).manual_seed(args.seed + 2)
     action_generator = torch.Generator(device=device).manual_seed(args.seed + 3)
-    validation = torch.rand(
-        args.validation_size,
-        args.graph_size,
-        2,
-        device=device,
-        generator=validation_generator,
+    validation = generate_instances(
+        args, args.validation_size, device, validation_generator
     )
 
     start_step = 0
@@ -111,7 +157,7 @@ def run(
     metrics_path = output_dir / "metrics.jsonl"
     started_at = time.monotonic()
     if start_step == 0:
-        initial_cost = evaluate(model, validation, args.base_mode)
+        initial_cost = evaluate(model, validation, args.base_mode, args.seed + 4)
         _append_metric(
             metrics_path,
             {"step": 0, "validation_greedy_cost": initial_cost, "elapsed_seconds": 0.0},
@@ -133,12 +179,8 @@ def run(
     try:
         for step in range(start_step + 1, args.steps + 1):
             model.train()
-            coordinates = torch.rand(
-                args.batch_size,
-                args.graph_size,
-                2,
-                device=device,
-                generator=data_generator,
+            coordinates = generate_instances(
+                args, args.batch_size, device, data_generator
             )
             output = model(
                 coordinates,
@@ -165,7 +207,7 @@ def run(
 
             should_evaluate = step % args.eval_every == 0 or step == args.steps
             if should_evaluate:
-                validation_cost = evaluate(model, validation, args.base_mode)
+                validation_cost = evaluate(model, validation, args.base_mode, args.seed + 4)
                 is_new_best = validation_cost < best_cost
                 if is_new_best:
                     best_cost = validation_cost
@@ -323,6 +365,15 @@ def _experiment_config(args: argparse.Namespace, device: torch.device) -> dict[s
         config.pop("pomo_size", None)
     if float(config.get("tail_entropy_coefficient", 0.0)) == 0.0:
         config.pop("tail_entropy_coefficient", None)
+    if config.get("problem") == "tsp":
+        # 保持既有 canonical TSP checkpoint 的配置完全兼容。
+        config.pop("problem", None)
+        config.pop("cycles", None)
+        config.pop("capacity", None)
+    elif config.get("problem") == "cvrp":
+        config.pop("cycles", None)
+    elif config.get("problem") == "min_m_ccp":
+        config.pop("capacity", None)
     config["device"] = str(device)
     if args.training_scheme == "pomo":
         config["effective_batch_size"] = int(args.batch_size) * int(args.pomo_size)
@@ -368,11 +419,20 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("pomo_size 必须位于 [1, graph_size]")
     if args.tail_entropy_coefficient < 0:
         raise ValueError("tail entropy 系数不能为负")
+    if args.problem == "min_m_ccp" and args.graph_size < 3 * args.cycles:
+        raise ValueError("Min-m-CCP 至少需要 3m 个节点")
+    if args.problem == "cvrp" and args.capacity < 9:
+        raise ValueError("CVRP capacity 必须至少容纳最大单点需求 9")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-mode", choices=BASE_MODES, required=True)
+    parser.add_argument(
+        "--problem", choices=("tsp", "cvrp", "min_m_ccp"), default="tsp"
+    )
+    parser.add_argument("--cycles", type=int, default=3)
+    parser.add_argument("--capacity", type=int, default=40)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--resume")
     parser.add_argument("--graph-size", type=int, default=50)

@@ -11,6 +11,7 @@ from groupopt.models.am import AttentionModel
 from groupopt.models.gpn import GraphPointerNetwork
 from groupopt.models.pomo import POMOModel
 from groupopt.models.ptrnet import PointerNetwork
+from groupopt.problems import BatchedCVRPConstruction, BatchedMCycleCoverConstruction
 
 ModelBuilder = Callable[[Mapping[str, Any]], nn.Module]
 
@@ -43,12 +44,26 @@ class ModelRegistry:
 
 
 def _am(config: Mapping[str, Any]) -> nn.Module:
+    problem = str(config.get("problem", "tsp"))
+    if problem == "tsp":
+        input_dim = 2
+        construction_process = None
+    elif problem == "cvrp":
+        input_dim = 5
+        construction_process = BatchedCVRPConstruction()
+    elif problem == "min_m_ccp":
+        input_dim = 2
+        construction_process = BatchedMCycleCoverConstruction(int(config["cycles"]))
+    else:
+        raise ValueError(f"AM host does not support problem: {problem}")
     return AttentionModel(
+        input_dim=input_dim,
         embedding_dim=int(config["embedding_dim"]),
         n_heads=int(config["heads"]),
         n_encoder_layers=int(config["encoder_layers"]),
         feed_forward_dim=int(config["feed_forward_dim"]),
         normalization=str(config["normalization"]),
+        construction_process=construction_process,
     )
 
 

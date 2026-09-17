@@ -60,7 +60,9 @@ src/groupopt/
 │   ├── forest_decoder.py  新范式的稳定神经接口与统一 rollout
 │   └── neural.py          宿主模型、问题过程和输出协议
 ├── problems/
-│   └── tsp_tensor.py      Forest 状态、合法性 mask、转移、闭环与目标函数
+│   ├── tsp_tensor.py      TSP Forest 状态、合法性 mask、转移与闭环
+│   ├── cvrp_tensor.py     跨问题 pilot 使用的 CVRP 状态机
+│   └── m_cycle_cover.py   跨问题 pilot 使用的定环数覆盖状态机
 ├── models/
 │   ├── am.py              AM-style 接入
 │   ├── ptrnet.py          Pointer Network 接入
@@ -81,29 +83,29 @@ experiments/
 ├── validate_comparison.py 数据隔离与非活跃参数检查
 ├── validate_native_original.py  原生单链基线等价性检查
 └── paper/
-    ├── protocol_tsp50.json       已完成主表的冻结协议
-    ├── run_main_tsp50.sh         四宿主×两方法×三种子复现入口
-    ├── summarize_main_tsp50.py   配对统计与论文主表汇总
-    ├── protocol_convergence_tsp50.json  长程训练选择协议
-    ├── run_convergence_tsp50.sh         从已有 checkpoint 独立续训
-    └── summarize_convergence_tsp50.py   各训练步配对曲线汇总
+    ├── README.md                  四组正式实验的复现顺序
+    ├── run_final_tsp50_multiseed.sh  四宿主×两方法×三种子主表
+    ├── run_scale_tsp.sh           TSP20/100 重训，TSP50 复用主表
+    ├── run_capacity_control_am_tsp50.sh  AM 参数量对照
+    ├── run_ablation_am_tsp50.sh   AM 三项信息消融
+    └── summarize_*.py            逐实例配对统计与表格汇总
 ```
 
 更详细的逐文件说明见 `docs/CODE_LAYOUT.md`，实验边界和结果出处见
 `docs/EXPERIMENT_PROTOCOL.md`。
 
-## 已确认的短程主实验
+## 论文正式 TSP50 主实验
 
-在同一批 10,000 个 uniform TSP50 实例、三个训练种子上，当前记录为：
+在同一批 10,000 个 uniform TSP50 实例、三个训练种子及预定最终训练步数上，当前记录为：
 
 | 宿主 | Native Original | Full GroupOpt | 相对改善 |
 |---|---:|---:|---:|
-| AM-style | 6.7494 | 6.3231 | 6.32% |
-| PtrNet | 7.4644 | 6.5935 | 11.67% |
-| GPN | 6.4618 | 6.3320 | 2.01% |
-| POMO | 6.2761 | 6.1344 | 2.26% |
+| AM-style | 6.4350 | 6.1026 | 5.17% |
+| PtrNet | 6.7418 | 6.2851 | 6.77% |
+| GPN | 6.3025 | 6.2347 | 1.08% |
+| POMO | 6.0373 | 5.9956 | 0.69% |
 
-这些数值用于确认跨宿主方向，不等同于最终充分收敛的论文主表。下一阶段将延长训练预算，检查优势是否在收敛后保持。可审计的逐种子摘要保存在 `paper_records/main_tsp50_v1/`。
+这些是三训练种子的均值；POMO 的 seed 1234 没有改善，不能将其描述为所有种子均提升。可审计的逐种子摘要、评估配置与逐实例代价保存在 `paper_records/formal_2026_09/main_tsp50/`；规模、容量和消融结果位于同一归档目录的其他三组子目录。
 
 ## 新模型接入原则
 
@@ -114,6 +116,9 @@ experiments/
 3. 两组都从头训练，不把预训练 decoder 直接迁移到不同状态语义下；
 4. 保存逐实例 `costs.pt`，报告配对均值差、95% CI 和胜率；
 5. 至少加入等参数或参数量匹配对照，排除新增容量解释。
+
+论文当前四组正式实验的阶段名称、执行顺序和可复现入口见
+`experiments/paper/README.md`；`protocol_paper_suite_v1.json` 是当时较大的计划矩阵，不应把未完成条目视为已有论文结果。
 
 ## 最小调用示例
 

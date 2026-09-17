@@ -34,7 +34,11 @@
 
 ### `src/groupopt/problems/distributions.py`
 
-生成固定 seed 的 TSP 坐标。论文主表只使用 `uniform`；其他分布目前不进入核心结论。
+生成固定 seed 的 TSP 坐标，以及跨问题 pilot 的 CVRP 输入。论文当前四组正式实验只使用 uniform TSP；跨问题 pilot 不进入本版正式结论。
+
+### `src/groupopt/problems/cvrp_tensor.py`、`m_cycle_cover.py`
+
+提供 CVRP 和指定环数覆盖问题的构造状态机，用于后续跨问题实验。它们虽由统一训练/评估入口导入，但目前不对应已归档的四组正式论文数值。
 
 ## 3. 宿主模型
 
@@ -52,7 +56,7 @@ Graph Pointer Network 接入。除节点表示外，还保留相对坐标上下�
 
 ### `src/groupopt/models/pomo.py`
 
-与官方 POMO 参数布局兼容的宿主。保留多起点 POMO 训练和 best-of-POMO 评估，同时接入统一 Forest rollout。该文件也包含论文所需的容量匹配和信息消融模式。
+与官方 POMO 参数布局兼容的宿主。保留多起点 POMO 训练和 best-of-POMO 评估，同时接入统一 Forest rollout。当前正式容量匹配和信息消融实验在 AM 宿主上进行。
 
 ### `src/groupopt/models/native_conditional.py`
 
@@ -86,6 +90,13 @@ Graph Pointer Network 接入。除节点表示外，还保留相对坐标上下�
 
 ### `experiments/paper/`
 
+- `README.md`：四组已完成正式实验的复现步骤、结果位置和边界。
+- `protocol_paper_suite_v1.json`：当时更大的实验计划；未完成条目不属于当前正式结果。
+- `run_final_tsp50_multiseed.sh`：四宿主长程三种子主表，可选复用已有收敛 checkpoint；从头运行时不设置 `REFERENCE_ROOT`。
+- `run_scale_tsp.sh`、`summarize_scale_tsp.py`：在 TSP20/100 分别训练并与主表 TSP50 一起汇总。
+- `run_capacity_control_am_tsp50.sh`、`summarize_capacity_control_am.py`：AM 等活跃参数单链对照。
+- `run_ablation_am_tsp50.sh`、`summarize_ablation_am.py`：AM 的 Random Tail、No Head Summary、No Path State 消融。
+- `protocol_*_v1.json`：与归档中四份 `protocol_snapshot.json` 完全一致的冻结协议。
 - `protocol_tsp50.json`：已完成短程主实验的不可含糊配置。
 - `run_main_tsp50.sh`：从头运行四宿主、两方法、三训练种子。
 - `summarize_main_tsp50.py`：检查测试集身份并输出逐种子、macro 和 pooled 配对统计。

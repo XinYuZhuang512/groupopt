@@ -32,12 +32,22 @@ BaseMode = Literal[
     "native_conditional_fixed",
     "native_conditional_free",
     "native_capacity_single_chain",
+    "native_forest_fixed",
+    "native_free_no_head_summary",
+    "native_free_no_path_state",
+    "native_free_no_last_head",
+    "native_random_tail",
 ]
 BASE_MODES = (
     "native_original",
     "native_conditional_fixed",
     "native_conditional_free",
     "native_capacity_single_chain",
+    "native_forest_fixed",
+    "native_free_no_head_summary",
+    "native_free_no_path_state",
+    "native_free_no_last_head",
+    "native_random_tail",
 )
 
 
@@ -90,6 +100,7 @@ class _EncoderLayer(nn.Module):
 class _GraphAttentionEncoder(nn.Module):
     def __init__(
         self,
+        input_dim: int,
         embedding_dim: int,
         n_heads: int,
         n_layers: int,
@@ -97,7 +108,7 @@ class _GraphAttentionEncoder(nn.Module):
         normalization: Literal["batch", "layer"],
     ) -> None:
         super().__init__()
-        self.input_projection = nn.Linear(2, embedding_dim)
+        self.input_projection = nn.Linear(input_dim, embedding_dim)
         self.layers = nn.ModuleList(
             _EncoderLayer(
                 embedding_dim,
@@ -120,6 +131,7 @@ class AttentionModel(nn.Module):
 
     def __init__(
         self,
+        input_dim: int = 2,
         embedding_dim: int = 128,
         n_heads: int = 8,
         n_encoder_layers: int = 3,
@@ -137,6 +149,7 @@ class AttentionModel(nn.Module):
         self.tanh_clipping = tanh_clipping
         self.construction_process = construction_process or BatchedTSPConstruction()
         self.encoder = _GraphAttentionEncoder(
+            input_dim,
             embedding_dim,
             n_heads,
             n_encoder_layers,
@@ -171,7 +184,14 @@ class AttentionModel(nn.Module):
             raise ValueError(f"unknown base mode: {base_mode}")
 
         node_embeddings, graph_embedding = self.encoder(coordinates)
-        if base_mode == "native_conditional_free":
+        if base_mode in {
+            "native_conditional_free",
+            "native_forest_fixed",
+            "native_free_no_head_summary",
+            "native_free_no_path_state",
+            "native_free_no_last_head",
+            "native_random_tail",
+        }:
             return self._decode_native_conditional_free(
                 coordinates,
                 node_embeddings,
@@ -179,6 +199,11 @@ class AttentionModel(nn.Module):
                 decode_type,
                 temperature,
                 generator,
+                fixed_tail=base_mode == "native_forest_fixed",
+                use_head_summary=base_mode != "native_free_no_head_summary",
+                use_path_state=base_mode != "native_free_no_path_state",
+                use_last_head=base_mode != "native_free_no_last_head",
+                random_tail=base_mode == "native_random_tail",
             )
         if base_mode == "native_capacity_single_chain":
             return self._decode_native_capacity_single_chain(
@@ -258,6 +283,12 @@ class AttentionModel(nn.Module):
         decode_type: DecodeType,
         temperature: float,
         generator: torch.Generator | None,
+        *,
+        fixed_tail: bool = False,
+        use_head_summary: bool = True,
+        use_path_state: bool = True,
+        use_last_head: bool = True,
+        random_tail: bool = False,
     ) -> AttentionModelOutput:
         """用 AM 风格实现完整的 Forest-aware head/tail 接口。"""
         process = self.construction_process
@@ -265,7 +296,7 @@ class AttentionModel(nn.Module):
         key, value, logit_key = self.project_nodes(node_embeddings).chunk(3, dim=-1)
         key = self._split_heads(key)
         value = self._split_heads(value)
-        distances = torch.cdist(coordinates, coordinates)
+        distances = torch.cdist(coordinates[..., :2], coordinates[..., :2])
         last_head_embedding = self.first_step_context.unsqueeze(0).expand(
             coordinates.size(0), self.embedding_dim
         )
@@ -294,14 +325,31 @@ class AttentionModel(nn.Module):
             proposal: ForestHeadProposal,
             tail_mask: Tensor,
         ) -> Tensor:
-            state_tail_nodes = self._state_aware_tail_embeddings(
-                node_embeddings, state
-            ) + self.project_native_head_summary(proposal.features)
+            if random_tail:
+                return _random_forest_tail_log_probabilities(
+                    tail_mask, node_embeddings.dtype, generator
+                )
+            if fixed_tail:
+                return _deterministic_forest_tail_log_probabilities(
+                    state, tail_mask, node_embeddings.dtype
+                )
+            state_tail_nodes = node_embeddings
+            if use_path_state:
+                state_tail_nodes = state_tail_nodes + self.project_tail_state(
+                    state.path_state_features(node_embeddings)
+                )
+            if use_head_summary:
+                state_tail_nodes = state_tail_nodes + self.project_native_head_summary(
+                    proposal.features
+                )
             tail_key, tail_value, tail_logit_key = self.project_state_tail_nodes(
                 state_tail_nodes
             ).chunk(3, dim=-1)
+            tail_context = (
+                last_head_embedding if use_last_head else torch.zeros_like(last_head_embedding)
+            )
             tail_query = self.project_tail_context(
-                torch.cat((graph_context, last_head_embedding), dim=-1)
+                torch.cat((graph_context, tail_context), dim=-1)
             )
             tail_logits = self._attention_logits(
                 tail_query,
@@ -356,7 +404,7 @@ class AttentionModel(nn.Module):
         key, value, logit_key = self.project_nodes(node_embeddings).chunk(3, dim=-1)
         key = self._split_heads(key)
         value = self._split_heads(value)
-        distances = torch.cdist(coordinates, coordinates)
+        distances = torch.cdist(coordinates[..., :2], coordinates[..., :2])
         last_head_embedding = self.first_step_context.unsqueeze(0).expand(
             state.batch_size, self.embedding_dim
         )
@@ -524,3 +572,42 @@ def _select(
             log_probabilities.exp(), num_samples=1, generator=generator
         ).squeeze(1)
     raise ValueError(f"unknown decode type: {decode_type}")
+
+
+def _deterministic_forest_tail_log_probabilities(
+    state: BatchedTSPState, tail_mask: Tensor, dtype: torch.dtype
+) -> Tensor:
+    """优先扩展最短分量，并用节点编号打破平局。"""
+    node_count = tail_mask.size(1)
+    indices = torch.arange(node_count, device=tail_mask.device).expand_as(tail_mask)
+    component_size_by_label = torch.zeros_like(state.component).scatter_add(
+        1, state.component, torch.ones_like(state.component)
+    )
+    component_size = component_size_by_label.gather(1, state.component)
+    priority = component_size * (node_count + 1) + indices
+    invalid_priority = (node_count + 1) ** 2
+    selected = priority.masked_fill(tail_mask, invalid_priority).argmin(dim=1)
+    if tail_mask.gather(1, selected[:, None]).any():
+        raise ValueError("a nonterminal Forest state has no legal tail")
+    log_p = torch.full(tail_mask.shape, -torch.inf, dtype=dtype, device=tail_mask.device)
+    log_p.scatter_(1, selected[:, None], 0.0)
+    return log_p
+
+
+def _random_forest_tail_log_probabilities(
+    tail_mask: Tensor,
+    dtype: torch.dtype,
+    generator: torch.Generator | None,
+) -> Tensor:
+    """从合法开放端点中均匀抽取一个 tail。
+
+    这是无参数消融：tail 决策本身不参与反向传播，head 仍由宿主
+    decoder 训练和选择。评估程序会传入固定随机种子，因而结果可复现。
+    """
+    legal_weights = (~tail_mask).to(dtype)
+    if (legal_weights.sum(dim=1) == 0).any():
+        raise ValueError("a nonterminal Forest state has no legal tail")
+    selected = torch.multinomial(legal_weights, 1, generator=generator)
+    log_p = torch.full(tail_mask.shape, -torch.inf, dtype=dtype, device=tail_mask.device)
+    log_p.scatter_(1, selected, 0.0)
+    return log_p
