@@ -34,6 +34,7 @@ BaseMode = Literal[
     "native_capacity_single_chain",
     "native_forest_fixed",
     "native_free_no_head_summary",
+    "native_free_end_to_end_summary",
     "native_free_no_path_state",
     "native_free_no_last_head",
     "native_random_tail",
@@ -45,6 +46,7 @@ BASE_MODES = (
     "native_capacity_single_chain",
     "native_forest_fixed",
     "native_free_no_head_summary",
+    "native_free_end_to_end_summary",
     "native_free_no_path_state",
     "native_free_no_last_head",
     "native_random_tail",
@@ -188,6 +190,7 @@ class AttentionModel(nn.Module):
             "native_conditional_free",
             "native_forest_fixed",
             "native_free_no_head_summary",
+            "native_free_end_to_end_summary",
             "native_free_no_path_state",
             "native_free_no_last_head",
             "native_random_tail",
@@ -201,6 +204,7 @@ class AttentionModel(nn.Module):
                 generator,
                 fixed_tail=base_mode == "native_forest_fixed",
                 use_head_summary=base_mode != "native_free_no_head_summary",
+                detach_head_summary=base_mode != "native_free_end_to_end_summary",
                 use_path_state=base_mode != "native_free_no_path_state",
                 use_last_head=base_mode != "native_free_no_last_head",
                 random_tail=base_mode == "native_random_tail",
@@ -286,6 +290,7 @@ class AttentionModel(nn.Module):
         *,
         fixed_tail: bool = False,
         use_head_summary: bool = True,
+        detach_head_summary: bool = True,
         use_path_state: bool = True,
         use_last_head: bool = True,
         random_tail: bool = False,
@@ -317,7 +322,9 @@ class AttentionModel(nn.Module):
                 self.project_head_glimpse,
             )
             head_log_p = masked_conditional_log_probabilities(head_logits, pair_mask, temperature)
-            summary = native_head_summary(head_log_p, distances).detach()
+            summary = native_head_summary(head_log_p, distances)
+            if detach_head_summary:
+                summary = summary.detach()
             return ForestHeadProposal(head_log_p, summary)
 
         def score_tails(

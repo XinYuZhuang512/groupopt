@@ -1,0 +1,45 @@
+{
+  "experiment_id": "paper_summary_gradient_am_tsp50_v1",
+  "claim": "Separate the value of the head-distribution summary from the effect of stopping its gradient before the tail selector",
+  "problem": "uniform_euclidean_tsp",
+  "graph_size": 50,
+  "host": "am",
+  "modes": [
+    "native_conditional_free",
+    "native_free_end_to_end_summary",
+    "native_free_no_head_summary"
+  ],
+  "new_training_mode": "native_free_end_to_end_summary",
+  "reference_experiments": {
+    "native_conditional_free": "paper_final_tsp50_v1",
+    "native_free_no_head_summary": "paper_ablation_am_tsp50_v1"
+  },
+  "training_seeds": [1234, 4321, 2468],
+  "training": {
+    "steps": 10000,
+    "batch_size": 512,
+    "validation_size": 1024,
+    "embedding_dim": 128,
+    "encoder_layers": 3,
+    "attention_heads": 8,
+    "feed_forward_dim": 512,
+    "normalization": "batch",
+    "learning_rate": 0.0001,
+    "max_gradient_norm": 1.0,
+    "eval_every": 100,
+    "checkpoint_every": 1000
+  },
+  "evaluation": {
+    "test_seed": 20260904,
+    "test_size": 10000,
+    "batch_size": 64,
+    "decode_type": "greedy",
+    "paired_instances": true,
+    "checkpoint_policy": "predeclared final step"
+  },
+  "intervention": {
+    "detached_summary": "The tail selector reads entropy, expected edge length, and maximum head probability, but its gradient does not flow through these statistics into the head scorer",
+    "end_to_end_summary": "The same statistics and forward computation are retained, but their gradient is allowed to flow into the head scorer",
+    "no_summary": "The three statistics and their projection are removed from tail scoring"
+  }
+}

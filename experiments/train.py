@@ -26,6 +26,7 @@ BASE_MODES = (
     "native_capacity_single_chain",
     "native_forest_fixed",
     "native_free_no_head_summary",
+    "native_free_end_to_end_summary",
     "native_free_no_path_state",
     "native_free_no_last_head",
     "native_random_tail",
@@ -152,7 +153,11 @@ def run(
         if "cpu_rng_state" in checkpoint:
             torch.set_rng_state(checkpoint["cpu_rng_state"].cpu())
         if device.type == "cuda" and "cuda_rng_states" in checkpoint:
-            torch.cuda.set_rng_state_all(checkpoint["cuda_rng_states"])
+            # ``map_location=device`` 会把 RNG state 也搬到 GPU；PyTorch 2.8
+            # 的 CUDA generator 明确要求传入 CPU ByteTensor。
+            torch.cuda.set_rng_state_all(
+                [state.cpu() for state in checkpoint["cuda_rng_states"]]
+            )
 
     metrics_path = output_dir / "metrics.jsonl"
     started_at = time.monotonic()

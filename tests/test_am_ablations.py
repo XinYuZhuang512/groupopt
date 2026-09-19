@@ -9,6 +9,7 @@ from groupopt.models.am import AttentionModel
 MODES = (
     "native_forest_fixed",
     "native_free_no_head_summary",
+    "native_free_end_to_end_summary",
     "native_free_no_path_state",
     "native_free_no_last_head",
     "native_random_tail",
